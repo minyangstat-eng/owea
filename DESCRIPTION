@@ -1,0 +1,38 @@
+Package: owea
+Type: Package
+Title: Optimal Weights Exchange Algorithm for Approximate Optimal Designs
+Version: 0.1.0
+Authors@R: c(
+    person("Min", "Yang", role = c("aut")),
+    person("Stefanie", "Biedermann", role = "aut"),
+    person("Elvis", "Tang", role = c("aut", "cre"),
+           email = "alex.tang.yang@gmail.com"))
+Description: Finds D- and A-optimal approximate designs for linear, nonlinear
+    and generalized linear models using the Optimal Weights Exchange Algorithm
+    (OWEA) of Yang, Biedermann and Tang (2013)
+    <doi:10.1080/01621459.2013.806268>. The model enters the algorithm through
+    a single per-point function returning EITHER the information vector
+    f(x, theta) (per-point information matrix = f f', the fast path) OR the full
+    k-by-k information matrix at x (the general path). A single C++ core
+    (RcppArmadillo) handles both representations. Supports D- and A-optimality,
+    general differentiable functions g(theta) of the parameters, multistage
+    designs that augment an existing design, sequential (coarse-to-fine) grid
+    search, and optional merging of neighbouring support points.
+License: GPL-3
+Encoding: UTF-8
+Imports:
+    Rcpp
+LinkingTo:
+    Rcpp,
+    RcppArmadillo
+Suggests:
+    testthat (>= 3.0.0),
+    nnet,
+    MASS,
+    shiny,
+    DT,
+    rsconnect
+RoxygenNote: 7.3.2
+NeedsCompilation: yes
+URL: https://github.com/USERNAME/owea
+BugReports: https://github.com/USERNAME/owea/issues

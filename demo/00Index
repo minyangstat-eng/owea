@@ -1,0 +1,9 @@
+demo_exact     Exact (integer) optimal designs for a given sample size via exact_design()
+demo_factors   Factor (categorical) covariates in optimal_design() / exact_design()
+demo_general   Multistage A-optimal logistic GLM design via optimal_design() (info matrix)
+demo_model     Formula-style model spec (link + f/x/fx/ff/xx) instead of hand-written info_vector
+demo_simulate  Simulate responses for a design and fit the model back (all links; Monte Carlo)
+demo_owea      owea() on a fixed candidate set: D-, A-, and two-stage designs (info matrix)
+demo_owea2     owea() on a fixed candidate grid built by candidate_grid() (info matrix)
+demo_subset    Designs for a subset / general function of the parameters (subset / grad_g)
+demo_unified   Merged-package features: vector vs matrix input, fast two-stage, optional merging
