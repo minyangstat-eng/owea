@@ -1,0 +1,18 @@
+# Compiled objects / shared libraries — regenerated on every install.
+# NEVER commit these: platform-specific (e.g. Windows .o/.dll) build artifacts
+# break a source build on other platforms (e.g. shinyapps.io Linux).
+*.o
+*.so
+*.dll
+*.a
+*.dylib
+
+# R session / build cruft
+.Rhistory
+.RData
+.Rproj.user
+*.Rproj
+*.tar.gz
+src/*.o
+src/*.so
+src/*.dll
