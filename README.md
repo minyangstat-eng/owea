@@ -1,8 +1,13 @@
 # owea — Optimal Weights Exchange Algorithm for approximate optimal designs
 
-`owea` finds Φ_p-optimal approximate designs (D-, A-, …, optimal) for linear,
-nonlinear, and generalized linear models using the Optimal Weights Exchange
-Algorithm (OWEA) of Yang, Biedermann & Tang (2013, *JASA* 108(504), 1411–1420).
+`owea` finds **D- and A-optimal** experimental designs for linear, nonlinear, and
+generalized linear models using the Optimal Weights Exchange Algorithm (OWEA) of
+Yang, Biedermann & Tang (2013, *JASA* 108(504), 1411–1420).
+
+> ### ▶ Try the web app — no installation
+> **<https://owea.shinyapps.io/owea-designs/>**
+> Open it in any browser (works on phones and tablets too): describe your model
+> with menus, click *Compute*, and get the design. No R, no setup.
 
 The main entry point is **`optimal_design()`**. The rest of this README focuses
 on it.
@@ -25,9 +30,10 @@ conventions (factor coding, term indices, interaction codes).
   owea::run_owea_app()
   ```
 
-- **Use it hosted (zero install).** Deploy the app once and share the URL —
-  users just open it in a browser, no R or Rtools on their machines. Paste your
-  hosted link here once deployed: **`<your-app-url>`**.
+- **Use it hosted — nothing to install:**
+  **<https://owea.shinyapps.io/owea-designs/>**
+  Open it in any browser (phones and tablets included) — no R, no Rtools, no
+  setup. This is the easiest way to try the tool or share it with collaborators.
 
 ### Hosting on shinyapps.io (free)
 
