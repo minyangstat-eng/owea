@@ -1,7 +1,7 @@
 Package: owea
 Type: Package
 Title: Optimal Weights Exchange Algorithm for Approximate Optimal Designs
-Version: 0.1.0
+Version: 0.2.0
 Authors@R: c(
     person("Min", "Yang", role = c("aut")),
     person("Stefanie", "Biedermann", role = "aut"),
@@ -17,7 +17,10 @@ Description: Finds D- and A-optimal approximate designs for linear, nonlinear
     (RcppArmadillo) handles both representations. Supports D- and A-optimality,
     general differentiable functions g(theta) of the parameters, multistage
     designs that augment an existing design, sequential (coarse-to-fine) grid
-    search, and optional merging of neighbouring support points.
+    search, and optional merging of neighbouring support points. Also provides
+    exact (integer-run) designs, maximum-likelihood estimation of the model
+    parameters from an observed data set, simulation studies, and a
+    point-and-click Shiny app.
 License: GPL-3
 Encoding: UTF-8
 Imports:
@@ -34,5 +37,5 @@ Suggests:
     rsconnect
 RoxygenNote: 7.3.2
 NeedsCompilation: yes
-URL: https://github.com/USERNAME/owea
-BugReports: https://github.com/USERNAME/owea/issues
+URL: https://github.com/minyangstat-eng/owea
+BugReports: https://github.com/minyangstat-eng/owea/issues
