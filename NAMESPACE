@@ -27,6 +27,7 @@ export(model_info_vector)
 export(model_info_matrix)
 export(model_summary)
 export(simulate_design)
+export(fit_design)
 
 # --- web app / visualization ---
 export(run_owea_app)

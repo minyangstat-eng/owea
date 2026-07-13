@@ -15,7 +15,8 @@ owea(
   init_method = "minmax",
   full_scan_every = "auto",
   warm_support = NULL,
-  warm_weights = NULL
+  warm_weights = NULL,
+  ma_max_iter = 100L
 )
 }
 \arguments{
@@ -36,13 +37,20 @@ owea(
 \code{merge = TRUE}).}
 
 \item{init_method}{initial-support strategy: \code{"minmax"} (default),
-\code{"minmaxmedian"}, \code{"random"}, \code{"iboss"}, \code{"auto"}.}
+\code{"minmaxmedian"}, \code{"random"}, \code{"iboss"}, \code{"MA"},
+\code{"auto"}. \code{"MA"} runs a multiplicative algorithm (equal-weight
+start, D-optimality) and keeps the \code{k + 1} highest-weight candidate
+points as the starting support -- often a much better warm start in higher
+dimensions.}
 
 \item{full_scan_every}{accepted for compatibility (the engine scans the whole
 grid every iteration via one batched product).}
 
 \item{warm_support, warm_weights}{optional warm-start design (snapped to the
 candidate grid).}
+
+\item{ma_max_iter}{maximum number of multiplicative-algorithm iterations used
+by \code{init_method = "MA"} (default 100); ignored by the other methods.}
 }
 \value{
 list with \code{support}, \code{weights}, \code{criterion},

@@ -34,6 +34,8 @@ optimal_design(
   merge_atol = NULL,
   init_method = "auto",
   auto_warm_start = TRUE,
+  solver = "owea",
+  ma_max_iter = 100L,
   check_global = FALSE,
   global_step = NULL,
   global_max_points = 1e+06,
@@ -141,11 +143,33 @@ which could fuse distinct optimal points at a coarse resolution). Default
 smallest positive per-coordinate gap in \code{candidate_set}.}
 
 \item{init_method}{initial-support strategy (\code{"auto"} = IBOSS for
-vector input, minmax for matrix input).}
+vector input, minmax for matrix input). Other choices: \code{"minmax"},
+\code{"minmaxmedian"}, \code{"random"}, \code{"iboss"}, and \code{"MA"} (a
+multiplicative algorithm that keeps the \code{k + 1} highest-weight points as
+the warm-start support -- often faster in higher dimensions).}
 
 \item{auto_warm_start}{if \code{TRUE} (default) and a \code{candidate_set}
 solve fails to converge from a cold start, automatically retry warm-started
 from a quick coarse multistage solve over the candidate set's bounding box.}
+
+\item{solver}{design algorithm: \code{"owea"} (default) runs the OWEA exchange
+engine (initialised per \code{init_method}); \code{"MA"} (alias
+\code{"multiplicative"}) instead runs the general multiplicative algorithm
+(Yu 2010) as a \emph{direct} solver and returns its design, skipping the
+exchange engine -- typically far faster for larger problems. \code{"MA"}
+handles both D-optimality (\code{p = 0}) and A-optimality (\code{p = 1}), any
+quantity of interest (\code{subset} / \code{grad_g} / \code{wb}) and an
+existing design (\code{n0 > 0}). For a criterion outside its
+guaranteed-convergent class (e.g. c-optimality / rank-1 \code{wb}), any
+per-grid solve that fails to certify optimality automatically falls back to
+the OWEA engine, so the result is always correct. When \code{solver = "MA"},
+\code{init_method} and \code{auto_warm_start} are unused. \code{"owea"} is
+generally faster, but \code{"MA"} has the advantage for a large dimension of
+the information matrix (many parameters / a big grid).}
+
+\item{ma_max_iter}{maximum number of multiplicative-algorithm iterations, used
+both by \code{init_method = "MA"} and \code{solver = "MA"} (default 100; the
+direct solver raises the effective cap to at least 10000 so it can converge).}
 
 \item{check_global}{if \code{TRUE} (only meaningful for the \code{design_box}
 path), after the multistage solve converges, verify the design over a fine

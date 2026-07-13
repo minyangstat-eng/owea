@@ -4,15 +4,25 @@
 \alias{initial_support}
 \title{Build an initial support for a design problem (information-matrix model).}
 \usage{
-initial_support(prob, init_method = "minmax", max_tries = 50L)
+initial_support(
+  prob,
+  init_method = "minmax",
+  max_tries = 50L,
+  ma_max_iter = 100L
+)
 }
 \arguments{
 \item{prob}{a \code{DesignProblem}.}
 
 \item{init_method}{one of \code{"minmax"} (default), \code{"minmaxmedian"},
-\code{"random"}, \code{"iboss"}, \code{"auto"}.}
+\code{"random"}, \code{"iboss"}, \code{"MA"}, \code{"auto"}. \code{"MA"} runs
+a multiplicative algorithm (equal-weight start, D-optimality) and keeps the
+\code{k + 1} highest-weight points as the initial support.}
 
 \item{max_tries}{number of random subsets to try in the fallback.}
+
+\item{ma_max_iter}{maximum number of multiplicative-algorithm iterations when
+\code{init_method = "MA"} (default 100); ignored by the other methods.}
 }
 \value{
 list with elements \code{support} and \code{weights}.

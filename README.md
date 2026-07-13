@@ -2,7 +2,8 @@
 
 `owea` finds **D- and A-optimal** experimental designs for linear, nonlinear, and
 generalized linear models using the Optimal Weights Exchange Algorithm (OWEA) of
-Yang, Biedermann & Tang (2013, *JASA* 108(504), 1411–1420).
+Yang, Biedermann & Tang (2013, *JASA* 108(504), 1411–1420). An alternative
+**multiplicative-algorithm solver** (`solver = "MA"`, Yu 2010) is also available — see §9.
 
 > ### ▶ Try the web app — no installation
 > **<https://owea.shinyapps.io/owea-designs/>**
@@ -248,8 +249,10 @@ that are close together (weighted centroid, then re-optimise the weights):
 | Argument | Default | Meaning |
 |----------|---------|---------|
 | `theta` | `NULL` | parameter values; required only for a `function(x, theta)` model, `grad_g`, or an existing design |
-| `init_method` | `"auto"` | starting support: `"auto"` (IBOSS for vector input, minmax for matrix input), `"minmax"`, `"minmaxmedian"`, `"random"`, `"iboss"` |
-| `auto_warm_start` | `TRUE` | if a `candidate_set` solve fails from a cold start, automatically retry warm-started from a quick coarse multistage solve |
+| `solver` | `"owea"` | design algorithm: `"owea"` (the exchange engine) or `"MA"` (the multiplicative algorithm as a direct solver, see §9) |
+| `init_method` | `"auto"` | starting support for the OWEA engine: `"auto"` (IBOSS for vector input, minmax for matrix input), `"minmax"`, `"minmaxmedian"`, `"random"`, `"iboss"`, or `"MA"` (a multiplicative-algorithm warm start — keeps the `k+1` highest-weight points; often fewer engine iterations) |
+| `ma_max_iter` | `100` | multiplicative-algorithm iteration cap. For `init_method = "MA"` it applies exactly; for `solver = "MA"` the effective cap is `max(ma_max_iter, 10000)` |
+| `auto_warm_start` | `TRUE` | if a `candidate_set` solve fails from a cold start, automatically retry warm-started from a quick coarse multistage solve (OWEA engine only) |
 | `check_global` | `FALSE` | (`design_box` path) after converging, verify the design over a fine grid spanning the whole box; reports `global_max_d` / `global_check` |
 | `global_step` | `NULL` | grid step for the `check_global` verification (default the finest `step_sequence` step) |
 | `max_iter` | `100` | maximum outer iterations per stage |
@@ -283,7 +286,43 @@ Always check `res$converged` / `res$max_d`. The package also warns you:
 
 ---
 
-## 9. Exact designs for a given sample size — `exact_design()`
+## 9. An alternative solver — the multiplicative algorithm (`solver = "MA"`)
+
+By default `optimal_design()` uses the OWEA exchange engine (`solver = "owea"`).
+Passing `solver = "MA"` (alias `"multiplicative"`) instead solves the approximate
+design with the **multiplicative algorithm** (Yu 2010) run to convergence, and
+returns *its* design directly — no exchange engine on top.
+
+```r
+optimal_design(info_matrix = info_mat, theta = th,
+               design_box = list(c(-1,1), c(-1,1), c(-1,1), c(-1,1), c(-1,1)),
+               step_sequence = c(1), p = 0, solver = "MA")
+```
+
+- **Coverage.** It handles D- and A-optimality (`p = 0`/`1`), any quantity of
+  interest (`subset` / `grad_g` / `wb`), and existing designs (`n0 > 0`). For a
+  criterion outside its guaranteed-convergent class (c-optimality / rank-1 `wb`),
+  each per-grid solve that cannot certify optimality **falls back automatically**
+  to the OWEA engine, so the result is always correct.
+- **Speed.** `"owea"` is generally faster; but for a large dimension of the
+  information matrix (many parameters / a big grid) `"MA"` has the advantage. It
+  returns the multiplicative design, whose support may be larger (weight spread
+  over more points) than the sparse exchange-engine one.
+- **`ma_max_iter`** (default `100`) caps the iterations; as the solver the
+  effective cap is `max(ma_max_iter, 10000)` — raise it above `10000` for a
+  slowly converging problem.
+
+When `solver = "MA"`, `init_method` and `auto_warm_start` are unused.
+`exact_design()` also accepts `solver = "MA"` (it solves the reference
+approximate design with MA, then rounds and exchanges as usual).
+
+> **`init_method = "MA"` is different.** That keeps the OWEA engine but *warm-starts*
+> it from a quick multiplicative pass (often fewer engine iterations); `solver = "MA"`
+> *replaces* the engine. They are independent knobs.
+
+---
+
+## 10. Exact designs for a given sample size — `exact_design()`
 
 `optimal_design()` returns an **approximate** design (continuous weights summing
 to 1). When you must run an experiment with a fixed number of runs `n`, use
@@ -321,7 +360,9 @@ efficiency is *at least* this value — hence the printout shows `efficiency >= 
 
 Useful arguments: `max_exchange` (number of random exchanges, default `1000`),
 `seed` (reproducibility), `snap_support` (`design_box` path: snap the approximate
-support to the finest grid, default `TRUE`; or append it off-grid), and
+support to the finest grid, default `TRUE`; or append it off-grid),
+`solver` / `ma_max_iter` (solve the reference approximate design with the
+multiplicative algorithm — `solver = "MA"`, see §9), and
 `check_global` / `global_step` / `global_max_points` (passed through to the
 internal `optimal_design()` to certify the approximate reference over the whole
 box — see §8). `print(res)` (or `print_result(res)`) reports the design's
@@ -332,7 +373,7 @@ non-singular information matrix.
 
 ---
 
-## 10. Related functions
+## 11. Related functions
 
 - `owea()` + `DesignProblem()` — a lower-level interface for a fixed candidate
   set (the same engine `optimal_design()` uses), returning the design directly
@@ -345,7 +386,7 @@ non-singular information matrix.
 
 ---
 
-## 11. Installation
+## 12. Installation
 
 The package compiles C++ on install, so every user needs:
 
@@ -371,7 +412,7 @@ Then `library(owea)`.
 
 ---
 
-## 12. Demos and examples
+## 13. Demos and examples
 
 ```r
 demo(package = "owea")                # list demos
@@ -386,7 +427,11 @@ source(system.file("examples", "example_logistic3d.R", package = "owea"))
 
 ---
 
-## 13. Reference
+## 14. References
 
 Yang, M., Biedermann, S. & Tang, E. (2013). On Optimal Designs for Nonlinear
 Models: A General and Efficient Algorithm. *JASA* 108(504), 1411–1420.
+
+Yu, Y. (2010). Monotonic convergence of a general algorithm for computing optimal
+designs. *Annals of Statistics* 38(3), 1593–1606. (The multiplicative algorithm
+behind `solver = "MA"`.)

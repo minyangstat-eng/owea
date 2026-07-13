@@ -35,6 +35,8 @@ exact_design(
   snap_support = TRUE,
   init_method = "auto",
   auto_warm_start = TRUE,
+  solver = "owea",
+  ma_max_iter = 100L,
   check_global = FALSE,
   global_step = NULL,
   global_max_points = 1e+06,
@@ -110,6 +112,13 @@ materialising the full finest grid over the whole box.}
 
 \item{init_method, auto_warm_start, max_iter, eps0, accept_tol}{passed through to
 the internal \code{\link{optimal_design}} call.}
+
+\item{solver, ma_max_iter}{passed through to the internal
+\code{\link{optimal_design}} call: \code{solver = "MA"} (alias
+\code{"multiplicative"}) solves the reference APPROXIMATE design with the
+multiplicative algorithm instead of the OWEA exchange engine (see
+\code{\link{optimal_design}}); the exact-design rounding and exchange steps
+are unchanged. Default \code{solver = "owea"}.}
 
 \item{check_global, global_step, global_max_points}{passed through to the
 internal \code{\link{optimal_design}} call (\code{design_box} path):

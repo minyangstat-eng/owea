@@ -23,18 +23,25 @@
 #' @param merge_atol distance threshold for merging (used only if
 #'   \code{merge = TRUE}).
 #' @param init_method initial-support strategy: \code{"minmax"} (default),
-#'   \code{"minmaxmedian"}, \code{"random"}, \code{"iboss"}, \code{"auto"}.
+#'   \code{"minmaxmedian"}, \code{"random"}, \code{"iboss"}, \code{"MA"},
+#'   \code{"auto"}. \code{"MA"} runs a multiplicative algorithm (equal-weight
+#'   start, D-optimality) and keeps the \code{k + 1} highest-weight candidate
+#'   points as the starting support -- often a much better warm start in higher
+#'   dimensions.
 #' @param full_scan_every accepted for compatibility (the engine scans the whole
 #'   grid every iteration via one batched product).
 #' @param warm_support,warm_weights optional warm-start design (snapped to the
 #'   candidate grid).
+#' @param ma_max_iter maximum number of multiplicative-algorithm iterations used
+#'   by \code{init_method = "MA"} (default 100); ignored by the other methods.
 #' @return list with \code{support}, \code{weights}, \code{criterion},
 #'   \code{max_d}, \code{iterations}, \code{converged}.
 #' @export
 owea <- function(prob, eps0 = 1e-6, max_outer = 2000L, verbose = FALSE,
                  init_weight = 0.01, merge = FALSE, merge_atol = 1e-2,
                  init_method = "minmax", full_scan_every = "auto",
-                 warm_support = NULL, warm_weights = NULL) {
+                 warm_support = NULL, warm_weights = NULL,
+                 ma_max_iter = 100L) {
   if (!inherits(prob, "DesignProblem"))
     stop("'prob' must be a DesignProblem (see DesignProblem()).", call. = FALSE)
 
@@ -48,7 +55,8 @@ owea <- function(prob, eps0 = 1e-6, max_outer = 2000L, verbose = FALSE,
   }
   if (length(init_idx) == 0L)
     init_idx <- .initial_support_idx(prob$X, prob$info_mode, prob$info_data,
-                                     prob$k, prob$infor0, init_method)
+                                     prob$k, prob$infor0, init_method,
+                                     ma_max_iter = ma_max_iter)
 
   res <- .solve_engine(prob$p, prob$wb, prob$info_mode, prob$info_data,
                        prob$infor0, init_idx, max_outer, eps0, verbose,
@@ -172,7 +180,27 @@ owea <- function(prob, eps0 = 1e-6, max_outer = 2000L, verbose = FALSE,
 #'   \code{merge_factor * step} (the final/finest step) are merged. Used only if
 #'   \code{merge = TRUE}.
 #' @param init_method initial-support strategy (\code{"auto"} = IBOSS for
-#'   vector input, minmax for matrix input).
+#'   vector input, minmax for matrix input). Other choices: \code{"minmax"},
+#'   \code{"minmaxmedian"}, \code{"random"}, \code{"iboss"}, and \code{"MA"} (a
+#'   multiplicative algorithm that keeps the \code{k + 1} highest-weight points as
+#'   the warm-start support -- often faster in higher dimensions).
+#' @param solver design algorithm: \code{"owea"} (default) runs the OWEA exchange
+#'   engine (initialised per \code{init_method}); \code{"MA"} (alias
+#'   \code{"multiplicative"}) instead runs the general multiplicative algorithm
+#'   (Yu 2010) as a \emph{direct} solver and returns its design, skipping the
+#'   exchange engine -- typically far faster for larger problems. \code{"MA"}
+#'   handles both D-optimality (\code{p = 0}) and A-optimality (\code{p = 1}), any
+#'   quantity of interest (\code{subset} / \code{grad_g} / \code{wb}) and an
+#'   existing design (\code{n0 > 0}). For a criterion outside its
+#'   guaranteed-convergent class (e.g. c-optimality / rank-1 \code{wb}), any
+#'   per-grid solve that fails to certify optimality automatically falls back to
+#'   the OWEA engine, so the result is always correct. When \code{solver = "MA"},
+#'   \code{init_method} and \code{auto_warm_start} are unused. \code{"owea"} is
+#'   generally faster, but \code{"MA"} has the advantage for a large dimension of
+#'   the information matrix (many parameters / a big grid).
+#' @param ma_max_iter maximum number of multiplicative-algorithm iterations, used
+#'   both by \code{init_method = "MA"} and \code{solver = "MA"} (default 100; the
+#'   direct solver raises the effective cap to at least 10000 so it can converge).
 #' @param auto_warm_start if \code{TRUE} (default) and a \code{candidate_set}
 #'   solve fails to converge from a cold start, automatically retry warm-started
 #'   from a quick coarse multistage solve over the candidate set's bounding box.
@@ -218,6 +246,7 @@ optimal_design <- function(design_box = NULL, step_sequence = NULL,
                            factor_levels = NULL,
                            merge = FALSE, merge_factor = 1.5, merge_atol = NULL,
                            init_method = "auto", auto_warm_start = TRUE,
+                           solver = "owea", ma_max_iter = 100L,
                            check_global = FALSE, global_step = NULL,
                            global_max_points = 1e6,
                            max_iter = 100L, eps0 = 1e-6,
@@ -290,6 +319,16 @@ optimal_design <- function(design_box = NULL, step_sequence = NULL,
                      info_mode, info_vector, info_matrix, theta_use, k)
   infor0 <- i0$infor0; b <- i0$b
 
+  # solver: "owea" (OWEA exchange engine, default) or "MA" (the general
+  # multiplicative algorithm as a direct solver).  MA covers D- and A-optimality,
+  # any quantity of interest (subset / grad_g / wb) and an existing design; for a
+  # criterion outside its guaranteed-convergent class (e.g. c-optimality / rank-1
+  # wb) each per-grid MA solve that fails to certify falls back to the engine.
+  solver <- tolower(as.character(solver)[1])
+  use_ma <- solver %in% c("ma", "multiplicative")
+  if (!use_ma && !identical(solver, "owea"))
+    stop("solver must be \"owea\" or \"MA\".", call. = FALSE)
+
   # rank-aware minimum support: ceil((rank(wb) - existing coverage) / per-point
   # information rank).  Evaluate the per-point rank at representative points.
   samp <- if (use_set) {
@@ -321,11 +360,27 @@ optimal_design <- function(design_box = NULL, step_sequence = NULL,
   }
   solve_on_grid <- function(X, init_idx) solve_prepared(X, scaled_of(X), init_idx)
 
+  # solver = "MA": run the general multiplicative algorithm to convergence and
+  # return its design directly (no OWEA engine).  Handles D-/A-optimality, any
+  # quantity of interest (wb_use) and an existing design (infor0).
+  ma_cap <- max(as.integer(ma_max_iter), 10000L)
+  ma_solve_on_grid <- function(X, scaled)
+    .ma_solve(X, scaled, info_mode, k, wb_use, p, infor0, eps0, ma_cap)
+  # try MA on a grid; if it is singular or fails to certify (e.g. c-optimality),
+  # fall back to the OWEA engine so the result is always correct.
+  ma_or <- function(X, scaled, owea_thunk) {
+    r <- ma_solve_on_grid(X, scaled)
+    if (!isTRUE(r$singular) && isTRUE(r$converged)) return(r)
+    if (verbose) cat("  solver=MA did not certify on this grid; using OWEA.\n")
+    owea_thunk()
+  }
+
   # auto-warm-start retry: if a cold solve does not converge, warm-start it from
   # a coarse multistage solve over [blo, bhi] (makes a hard first stage /
   # candidate set converge instead of getting stuck on a rank-deficient design).
   robust_solve <- function(X, scaled, blo, bhi) {
-    init <- .initial_support_idx(X, info_mode, scaled, k, infor0, init_method)
+    init <- .initial_support_idx(X, info_mode, scaled, k, infor0, init_method,
+                                 ma_max_iter = ma_max_iter)
     cand <- solve_prepared(X, scaled, init)
     if (!cand$converged && isTRUE(auto_warm_start)) {
       if (verbose)
@@ -376,9 +431,16 @@ optimal_design <- function(design_box = NULL, step_sequence = NULL,
         X  <- .factor_make_grid(blo, bhi, step, is_factor, nlevels)
         sX <- scaled_of(X)
         tt <- system.time(
-          cand <- if (robust_first) robust_solve(X, sX, blo, bhi)
+          cand <- if (use_ma)
+                    ma_or(X, sX, function()
+                      if (robust_first) robust_solve(X, sX, blo, bhi)
+                      else solve_prepared(X, sX,
+                             .initial_support_idx(X, info_mode, sX, k, infor0,
+                                                  init_method, ma_max_iter = ma_max_iter)))
+                  else if (robust_first) robust_solve(X, sX, blo, bhi)
                   else solve_prepared(X, sX,
-                         .initial_support_idx(X, info_mode, sX, k, infor0, init_method)))[3]
+                         .initial_support_idx(X, info_mode, sX, k, infor0, init_method,
+                                              ma_max_iter = ma_max_iter)))[3]
         res <- cand; res_X <- X; res_step <- step
         times <- c(times, tt); gsz <- c(gsz, nrow(X))
         if (verbose)
@@ -388,7 +450,10 @@ optimal_design <- function(design_box = NULL, step_sequence = NULL,
         Xpts <- .factor_refined_grid(blo, bhi, res$support, steps[[i - 1L]], step,
                                      is_factor, nlevels)
         init <- unique(.nearest_idx(Xpts, res$support))
-        tt   <- system.time(cand <- solve_on_grid(Xpts, init))[3]
+        tt   <- system.time(
+          cand <- if (use_ma)
+                    ma_or(Xpts, scaled_of(Xpts), function() solve_on_grid(Xpts, init))
+                  else solve_on_grid(Xpts, init))[3]
         times <- c(times, tt); gsz <- c(gsz, nrow(Xpts))
         if (cand$converged && cand$criterion <= res$criterion + accept_tol) {
           res <- cand; res_X <- Xpts; res_step <- step
@@ -431,7 +496,10 @@ optimal_design <- function(design_box = NULL, step_sequence = NULL,
     } else NA_real_
     scaledX <- scaled_of(X)
     ttot <- system.time({
-      cand <- robust_solve(X, scaledX, apply(X, 2, min), apply(X, 2, max))
+      cand <- if (use_ma)
+                ma_or(X, scaledX, function()
+                  robust_solve(X, scaledX, apply(X, 2, min), apply(X, 2, max)))
+              else robust_solve(X, scaledX, apply(X, 2, min), apply(X, 2, max))
       cand <- finalize_merge(cand, scaledX, atol)
     })[3]
     if (verbose)

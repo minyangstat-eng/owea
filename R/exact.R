@@ -102,6 +102,12 @@
 #'   materialising the full finest grid over the whole box.
 #' @param init_method,auto_warm_start,max_iter,eps0,accept_tol passed through to
 #'   the internal \code{\link{optimal_design}} call.
+#' @param solver,ma_max_iter passed through to the internal
+#'   \code{\link{optimal_design}} call: \code{solver = "MA"} (alias
+#'   \code{"multiplicative"}) solves the reference APPROXIMATE design with the
+#'   multiplicative algorithm instead of the OWEA exchange engine (see
+#'   \code{\link{optimal_design}}); the exact-design rounding and exchange steps
+#'   are unchanged. Default \code{solver = "owea"}.
 #' @param check_global,global_step,global_max_points passed through to the
 #'   internal \code{\link{optimal_design}} call (\code{design_box} path):
 #'   verify the approximate design over a fine grid spanning the whole box and
@@ -143,6 +149,7 @@ exact_design <- function(n,
                          max_exchange = 1000L, seed = NULL,
                          snap_support = TRUE,
                          init_method = "auto", auto_warm_start = TRUE,
+                         solver = "owea", ma_max_iter = 100L,
                          check_global = FALSE, global_step = NULL,
                          global_max_points = 1e6,
                          max_iter = 100L, eps0 = 1e-6, accept_tol = 1e-9,
@@ -213,6 +220,7 @@ exact_design <- function(n,
                    merge = merge,
                    merge_factor = merge_factor, merge_atol = merge_atol,
                    init_method = init_method, auto_warm_start = auto_warm_start,
+                   solver = solver, ma_max_iter = ma_max_iter,
                    check_global = check_global, global_step = global_step,
                    global_max_points = global_max_points,
                    max_iter = max_iter, eps0 = eps0, accept_tol = accept_tol,

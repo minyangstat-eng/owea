@@ -17,11 +17,18 @@ Called for its side effect (runs the app); returns nothing useful.
 }
 \description{
 Opens a Shiny application that builds D- and A-optimal designs from
-point-and-click inputs -- no R code required. Choose a model family, add
-covariates (continuous ranges or factor levels), pick interactions by name,
-set the criterion and parameter values, and get the design, its plot, the
-information matrix, and a downloadable table. This is a convenience wrapper
-over \code{\link{optimal_design}} / \code{\link{exact_design}}.
+point-and-click inputs -- no R code required. It walks through the model
+(family, covariates, interactions, and the coding of any factor levels),
+asks whether you already have a design or a data set (either can be reused
+as a first stage, and a data set can also supply the assumed parameter
+values via \code{\link{fit_design}}), then the assumed parameters -- typed in
+or drawn from N(0,1) -- the criterion, the parameters of interest and the
+design type. It returns the design, its plot, the information matrix, a
+downloadable table, and can report the design's efficiency under a different
+criterion. Steps that do not apply are skipped: the linear (normal) model
+needs no assumed parameters, since its design is not local. This is a
+convenience wrapper over \code{\link{optimal_design}} /
+\code{\link{exact_design}}.
 }
 \seealso{
 \code{\link{optimal_design}}, \code{\link{exact_design}}.
