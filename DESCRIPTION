@@ -1,7 +1,7 @@
 Package: owea
 Type: Package
 Title: Optimal Weights Exchange Algorithm for Approximate Optimal Designs
-Version: 0.2.0
+Version: 0.3.0
 Authors@R: c(
     person("Min", "Yang", role = c("aut")),
     person("Stefanie", "Biedermann", role = "aut"),

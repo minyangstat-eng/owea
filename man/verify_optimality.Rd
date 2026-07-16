@@ -32,7 +32,8 @@ verify_optimality(
   n1 = 1,
   factor_levels = NULL,
   tol = 1e-06,
-  max_points = 1e+06
+  max_points = 1e+06,
+  criterion_only = FALSE
 )
 }
 \arguments{
@@ -68,8 +69,20 @@ declared optimal (default \code{1e-6}).}
 
 \item{max_points}{safety cap (default \code{1e6}) on the number of design
 points the \code{design_box} + \code{step} grid may generate. If the grid
-would exceed it, you are asked whether to proceed (interactive session) or
-stopped with a message to coarsen \code{step} or raise \code{max_points}.}
+would exceed it, you are asked (interactive session) whether to abort,
+build the grid anyway, or compute the criterion only (see
+\code{criterion_only}); non-interactively you are stopped with a message to
+coarsen \code{step}, raise \code{max_points}, or set
+\code{criterion_only = TRUE}.}
+
+\item{criterion_only}{if \code{TRUE}, skip the max-sensitivity
+(equivalence-theorem) scan entirely: the design is still validated exactly
+as usual (weights nonnegative and summing to 1; support points checked to
+lie among the design points, with a warning if not) and the criterion value
+and information matrix are returned, but the \code{design_box} +
+\code{step} grid is never built, so this works for any grid size.
+\code{max_sensitivity} is \code{NA}, \code{is_optimal$value} is \code{NA}
+(optimality is NOT assessed) and \code{maximiser} is \code{NULL}.}
 }
 \value{
 a list with \code{is_optimal} -- itself a list with \code{value}
@@ -80,7 +93,9 @@ a list with \code{is_optimal} -- itself a list with \code{value}
   \code{information} (the resulting \eqn{k \times k} information matrix;
   combined with any existing design), \code{maximiser} (the design-space point
   attaining the maximum sensitivity), and echoes of \code{support},
-  \code{weights}, \code{p}, \code{tol}.
+  \code{weights}, \code{p}, \code{tol}. Under \code{criterion_only} the
+  sensitivity fields are placeholders: \code{is_optimal$value} and
+  \code{max_sensitivity} are \code{NA} and \code{maximiser} is \code{NULL}.
 }
 \description{
 Checks whether a supplied approximate design (support points and weights) is

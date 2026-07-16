@@ -241,8 +241,11 @@ server <- function(input, output, session) {
           fluidRow(
             column(4, numericInput(paste0("cov_lo_", i), "low",  value = -1)),
             column(4, numericInput(paste0("cov_hi_", i), "high", value = 1)),
-            column(4, numericInput(paste0("cov_step_", i), "grid step",
-                                   value = 0.1, min = 1e-6)))),
+            column(4, textInput(paste0("cov_step_", i), "grid step(s)",
+                                value = "0.1", placeholder = "e.g. 0.5, 0.1"))),
+          helpText("One number, or a comma-separated step sequence from coarse ",
+                   "to fine (e.g. 0.5, 0.1, 0.02): the whole range is searched ",
+                   "at the coarsest step, then refined locally at each finer one.")),
         conditionalPanel(
           sprintf("input.cov_type_%d == 'factor'", i),
           numericInput(paste0("cov_nlev_", i), "number of levels", value = 2,
@@ -261,9 +264,9 @@ server <- function(input, output, session) {
              nlevels = as.integer(input[[paste0("cov_nlev_", i)]] %||% 2))
       } else {
         list(name = nm, type = "continuous",
-             lo   = as.numeric(input[[paste0("cov_lo_", i)]]   %||% -1),
-             hi   = as.numeric(input[[paste0("cov_hi_", i)]]   %||%  1),
-             step = as.numeric(input[[paste0("cov_step_", i)]] %||% 0.1))
+             lo    = as.numeric(input[[paste0("cov_lo_", i)]] %||% -1),
+             hi    = as.numeric(input[[paste0("cov_hi_", i)]] %||%  1),
+             steps = owea:::.ui_parse_steps(input[[paste0("cov_step_", i)]] %||% "0.1"))
       }
     })
   })
@@ -373,13 +376,60 @@ server <- function(input, output, session) {
     NULL
   }
 
+  # candidate-set size at each stage of the step sequence (coarsest first);
+  # grid_ok remembers the counts the user already agreed to proceed with, so
+  # the warning re-arms only when the grid inputs actually change
+  grid_sizes <- reactive(tryCatch(owea:::.ui_grid_sizes(covariates()),
+                                  error = function(e) NULL))
+  grid_ok <- reactiveVal(NULL)
+
+  advance <- function() {
+    s <- steps(); i <- step_i()
+    if (i < length(s)) goto(s[i + 1L])
+  }
+
   observeEvent(input$next_btn, {
     err <- step_error(cur())
     if (!is.null(err)) {
       showNotification(err, type = "error", duration = 8); return()
     }
-    s <- steps(); i <- step_i()
-    if (i < length(s)) goto(s[i + 1L])
+    if (identical(cur(), "model")) {
+      gs <- grid_sizes(); N1 <- gs[1]              # first (coarsest) stage
+      if (length(gs) && is.finite(N1) && N1 > 1e6 && !identical(grid_ok(), gs)) {
+        n_txt <- format(round(N1), big.mark = ",")
+        if (length(gs) == 1L)
+          showModal(modalDialog(title = "Large candidate set",
+            sprintf(paste0("The candidate set has %s design points at this grid ",
+              "step; building it may be slow."), n_txt),
+            footer = tagList(
+              modalButton("Adjust the grid size"),
+              actionButton("use_seq", "Use a step sequence"),
+              actionButton("grid_proceed", "Proceed anyway",
+                           class = "btn-warning"))))
+        else
+          showModal(modalDialog(title = "Large candidate set",
+            sprintf(paste0("The candidate set has %s design points at the first ",
+              "(coarsest) step of your step sequence; building it may be slow."),
+              n_txt),
+            footer = tagList(
+              modalButton("Adjust the step sequence"),
+              actionButton("grid_proceed", "Proceed anyway",
+                           class = "btn-warning"))))
+        return()
+      }
+    }
+    advance()
+  })
+  observeEvent(input$use_seq, {
+    removeModal()
+    showNotification(paste0(
+      "In the 'grid step(s)' box enter a comma-separated sequence of step sizes ",
+      "from coarse to fine, e.g. 0.5, 0.1, 0.02. Make the first step coarse ",
+      "enough that its grid stays below 1,000,000 points; the finest step sets ",
+      "the final precision."), type = "message", duration = NULL)
+  })
+  observeEvent(input$grid_proceed, {
+    removeModal(); grid_ok(grid_sizes()); advance()
   })
   observeEvent(input$back_btn, {
     s <- steps(); i <- step_i()
@@ -627,10 +677,15 @@ server <- function(input, output, session) {
     if (inherits(sp, "error"))
       return(div(class = "alert alert-danger", conditionMessage(sp)))
     ex <- tryCatch(existing(), error = function(e) NULL)
+    gs <- grid_sizes()
     li <- list(
       sprintf("Model: %s%s", names(LINKS)[match(sp$link, LINKS)],
               if (is.null(sp$ncat)) "" else sprintf(" with %d categories", sp$ncat)),
       sprintf("Covariates: %s", paste(names(sp$design_box), collapse = ", ")),
+      if (length(gs) && is.finite(gs[1]))
+        sprintf("Candidate set: %s design points%s",
+                format(round(gs[1]), big.mark = ","),
+                if (length(gs) > 1L) " (first step of the step sequence)" else ""),
       if (has_factor()) sprintf("Factor coding: %s", owea:::.ui_coding(sp)),
       sprintf("Parameters (%d): %s", length(coef_names()),
               paste(coef_names(), collapse = ", ")),
@@ -650,23 +705,9 @@ server <- function(input, output, session) {
     tags$ul(lapply(Filter(Negate(is.null), li), tags$li))
   })
 
-  # ---- compute, gated by the large-grid (>1e6) confirmation ---------------
-  go    <- reactiveVal(0)
-  gridN <- reactive(tryCatch(max(owea:::.ui_grid_sizes(covariates())),
-                             error = function(e) 0))
-  observeEvent(input$compute, {
-    N <- gridN()
-    if (is.finite(N) && N > 1e6)
-      showModal(modalDialog(title = "Large candidate set",
-        sprintf(paste0("The design space has %s design points at this step size; ",
-          "building it may be slow."), format(round(N), big.mark = ",")),
-        "Proceed anyway, or cancel and increase the step size?",
-        footer = tagList(modalButton("Cancel — change step"),
-                         actionButton("big_proceed", "Proceed anyway",
-                                      class = "btn-warning"))))
-    else go(go() + 1)
-  })
-  observeEvent(input$big_proceed, { removeModal(); go(go() + 1) })
+  # ---- compute (the large-grid warning now gates the model step's Next) ----
+  go <- reactiveVal(0)
+  observeEvent(input$compute, go(go() + 1))
   observeEvent(input$compute, {
     rv$verify <- NULL; rv$sim <- list(); rv$show_sim <- FALSE; rv$eff <- NULL
   })
@@ -906,7 +947,9 @@ server <- function(input, output, session) {
       helpText("Provide a design in the SAME format as the downloaded design CSV ",
                "(covariate columns + a 'weight' column). The box is prefilled with ",
                "the computed design — edit it, or upload a CSV, to verify a ",
-               "different design."),
+               "different design. Optimality is checked under the ORIGINAL ",
+               "criterion and parameters of interest, over the design box at ",
+               "the finest grid step you specified."),
       fileInput("verify_file", "Upload design CSV (optional)", accept = ".csv"),
       textAreaInput("verify_manual", "… or paste / edit the design",
                     value = design_csv_text(design_df()), rows = 6),
@@ -915,7 +958,10 @@ server <- function(input, output, session) {
       uiOutput("verify_out"))
   })
 
-  observeEvent(input$verify_btn, {
+  # the verify itself: original criterion (c$p) and parameters of interest
+  # (c$subset), on the finest step of the original step sequence (via
+  # .ui_solver_args' "verify" target)
+  run_verify <- function(criterion_only = FALSE) {
     c <- computed(); if (is.null(c) || !is.null(c$error)) return()
     warns <- character(0)
     v <- withCallingHandlers(
@@ -929,7 +975,8 @@ server <- function(input, output, session) {
           warning(sprintf("Weights summed to %.6f; rescaled to sum to 1.", sw),
                   call. = FALSE)
         do.call(verify_optimality,
-                c(list(support = dz$support, weights = w / sw),
+                c(list(support = dz$support, weights = w / sw,
+                       criterion_only = criterion_only),
                   owea:::.ui_solver_args(c$sp, "verify", c$theta, c$p, c$subset,
                                          c$existing)))
       },
@@ -937,23 +984,54 @@ server <- function(input, output, session) {
       warning = function(w) { warns <<- c(warns, conditionMessage(w))
                               invokeRestart("muffleWarning") })
     rv$verify <- list(v = v, warns = warns, opt_crit = c$res$criterion)
+  }
+
+  # gate on the size of the finest-step grid: checking optimality scans the
+  # WHOLE design space at the finest step, so past 1e6 points offer the same
+  # three choices as verify_optimality() itself
+  observeEvent(input$verify_btn, {
+    c <- computed(); if (is.null(c) || !is.null(c$error)) return()
+    N <- tryCatch(owea:::.ui_verify_points(c$sp), error = function(e) 0)
+    if (is.finite(N) && N > 1e6)
+      showModal(modalDialog(title = "Large design space",
+        sprintf(paste0("Checking optimality evaluates the sensitivity at all ",
+          "%s design points of the finest-step grid; building it may be slow."),
+          format(round(N), big.mark = ",")),
+        footer = tagList(
+          modalButton("Cancel"),
+          actionButton("verify_full", "Proceed anyway (full check)"),
+          actionButton("verify_crit_only",
+                       "Criterion only (skip the optimality check)",
+                       class = "btn-warning"))))
+    else run_verify()
   })
+  observeEvent(input$verify_full,      { removeModal(); run_verify(FALSE) })
+  observeEvent(input$verify_crit_only, { removeModal(); run_verify(TRUE) })
 
   output$verify_out <- renderUI({
     vr <- rv$verify; if (is.null(vr)) return(NULL)
     if (inherits(vr$v, "owea_bad"))
       return(div(class = "alert alert-danger", tags$b("Verify failed: "), vr$v$msg))
-    v <- vr$v; opt <- isTRUE(v$is_optimal$value)
-    tagList(br(),
-      if (length(vr$warns))
-        div(class = "alert alert-warning", tags$b("Warning: "),
-            paste(unique(vr$warns), collapse = "  ")),
+    v <- vr$v
+    warn_ui <- if (length(vr$warns))
+      div(class = "alert alert-warning", tags$b("Warning: "),
+          paste(unique(vr$warns), collapse = "  "))
+    crit_ui <- tagList(
+      tags$p(tags$b("Criterion (this design): "), sprintf("%.6f", v$criterion)),
+      tags$p(tags$small(sprintf("Optimal design criterion (for reference): %.6f",
+                                vr$opt_crit))))
+    if (is.na(v$is_optimal$value))                  # criterion-only run
+      return(tagList(br(), warn_ui,
+        div(class = "alert alert-info", crit_ui,
+            tags$p(tags$b("Optimality was NOT assessed"),
+                   " (the max-sensitivity check was skipped)."),
+            tags$p(tags$small(v$is_optimal$note)))))
+    opt <- isTRUE(v$is_optimal$value)
+    tagList(br(), warn_ui,
       div(class = if (opt) "alert alert-success" else "alert alert-warning",
           tags$p(tags$b("Max sensitivity: "),
                  sprintf("%.3e", v$max_sensitivity), " (0 at the optimum)"),
-          tags$p(tags$b("Criterion (this design): "), sprintf("%.6f", v$criterion)),
-          tags$p(tags$small(sprintf("Optimal design criterion (for reference): %.6f",
-                                    vr$opt_crit))),
+          crit_ui,
           tags$p(tags$b(if (opt) "The design IS optimal."
                         else "The design is NOT certified optimal.")),
           tags$p(tags$small(v$is_optimal$note))))

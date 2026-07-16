@@ -24,6 +24,28 @@ criterion, and assumed parameter values — and get the design as a table, a plo
 and the information matrix, with a CSV download. It hides the package's internal
 conventions (factor coding, term indices, interaction codes).
 
+Highlights of the wizard:
+
+- **Grid step(s) / step sequence.** Each continuous covariate takes one grid
+  step (`0.1`) or a comma-separated **step sequence** from coarse to fine
+  (`0.5, 0.1, 0.02`): the whole range is searched at the coarsest step, then
+  refined locally at each finer one — fine resolution without a huge grid.
+- **Large-candidate-set safeguard.** The number of candidate design points is
+  checked as soon as the model step is complete (and reported again on the
+  Review step). Past 1,000,000 points you choose: adjust the grid step, switch
+  to a step sequence, or proceed anyway.
+- **Verify optimality of a design.** Paste or upload any design (e.g. an edited
+  CSV) and check it under the *original* criterion over the design box at the
+  finest grid step. If that grid would exceed 1,000,000 points you choose:
+  cancel, run the full check anyway, or get the **criterion value only**.
+- **Efficiency under a different criterion.** The computed design is evaluated
+  against the design that is optimal for the other criterion, re-solved with
+  the *exact same step sequence* as the original.
+- **Existing designs and data.** An existing design or raw data set can be
+  reused as a first stage; a data set can also supply the assumed parameter
+  values by fitting the model (`fit_design()`). Exact (integer-run) designs
+  include a simulation study.
+
 - **Run it locally** (needs the `shiny` and `DT` packages):
 
   ```r
@@ -373,7 +395,37 @@ non-singular information matrix.
 
 ---
 
-## 11. Related functions
+## 11. Verifying a given design — `verify_optimality()`
+
+To check whether **any** design (support points + weights) is optimal — not just
+one the package computed — use `verify_optimality()`. It takes the same model
+and quantity-of-interest arguments as `optimal_design()`, plus the design and
+the design space (`design_box` + a single `step`, or a `candidate_set`), and
+reports the **maximum sensitivity** over the space (0 at the optimum, by the
+equivalence theorem), the criterion value, and the information matrix. The
+design is validated first: weights must be nonnegative and sum to 1, and
+support points off the grid are flagged with a warning (checked coordinate by
+coordinate — instant even for a huge grid).
+
+```r
+v <- verify_optimality(res$support, res$weights, info_vector = info_vec,
+                       theta = th, design_box = box, step = 0.05, p = 0)
+v$is_optimal$value    # TRUE if max_sensitivity <= tol
+v$max_sensitivity     # <= 0 (up to tol) at the optimum
+v$criterion
+```
+
+The optimality check evaluates the sensitivity at **every** point of the
+`design_box` + `step` grid. If that grid exceeds `max_points` (default `1e6`)
+you are asked to **abort**, **proceed anyway**, or compute the
+**criterion only** (`criterion_only = TRUE`, also available directly): the
+design is still validated and its criterion and information matrix returned,
+but no grid is built and optimality is not assessed (`max_sensitivity` is
+`NA`).
+
+---
+
+## 12. Related functions
 
 - `owea()` + `DesignProblem()` — a lower-level interface for a fixed candidate
   set (the same engine `optimal_design()` uses), returning the design directly
@@ -383,10 +435,12 @@ non-singular information matrix.
 - `make_grid()` / `candidate_grid()` — build a rectangular candidate grid.
 - `design_information()` / `infor_matrix()` — information matrix of a design.
 - `find_best_point()` — equivalence-theorem check of a design on any grid.
+- `fit_design()` — fit the model to a data set (used by the app to turn data
+  into assumed parameter values and a first-stage design).
 
 ---
 
-## 12. Installation
+## 13. Installation
 
 The package compiles C++ on install, so every user needs:
 
@@ -412,7 +466,7 @@ Then `library(owea)`.
 
 ---
 
-## 13. Demos and examples
+## 14. Demos and examples
 
 ```r
 demo(package = "owea")                # list demos
@@ -427,7 +481,7 @@ source(system.file("examples", "example_logistic3d.R", package = "owea"))
 
 ---
 
-## 14. References
+## 15. References
 
 Yang, M., Biedermann, S. & Tang, E. (2013). On Optimal Designs for Nonlinear
 Models: A General and Efficient Algorithm. *JASA* 108(504), 1411–1420.

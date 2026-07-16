@@ -18,6 +18,7 @@
 #   nlevels: integer >= 2        (factor)
 #   steps  : numeric vector, the multistage step SEQUENCE for a continuous
 #            covariate (any order; a scalar 'step' is accepted for back-compat).
+#            The app's "grid step(s)" text box feeds this via .ui_parse_steps().
 # Returns a NAMED design_box, the coarse-to-fine step_sequence (list form, one
 # per-continuous-covariate vector per stage; numeric(0) if all-factor), and the
 # per-continuous finest steps ('finest').  Each continuous covariate's sequence
@@ -61,6 +62,21 @@
   list(design_box = db, step_sequence = step_sequence, finest = finest)
 }
 
+# Parse the "grid step(s)" text box: one number or a comma-separated step
+# sequence ("0.5, 0.1, 0.02").  Numeric input passes through unchanged (for
+# programmatic use).  An empty field or ANY unparseable token gives numeric(0),
+# so .ui_design_box() raises its "needs a step sequence of positive numbers."
+# error instead of silently dropping a typo.
+.ui_parse_steps <- function(txt) {
+  if (is.numeric(txt)) return(as.numeric(txt))
+  tok <- trimws(strsplit(paste(as.character(txt), collapse = ","), ",")[[1]])
+  tok <- tok[nzchar(tok)]
+  if (!length(tok)) return(numeric(0))
+  s <- suppressWarnings(as.numeric(tok))
+  if (any(is.na(s))) return(numeric(0))
+  s
+}
+
 # Full-box grid size at each stage of the step sequence, for the large-grid
 # warning: prod(continuous: round((hi-lo)/step)+1) * prod(factor nlevels).
 # Returns one count per stage (integer-ish numeric), or 1 for an all-factor box.
@@ -73,6 +89,19 @@
   rng <- vapply(covariates[!fac],
                 function(cv) as.numeric(cv$hi) - as.numeric(cv$lo), numeric(1))
   vapply(db$step_sequence, function(by) nlev * prod(round(rng / by) + 1), numeric(1))
+}
+
+# Number of design points verify_optimality() will scan for a model spec:
+# the full design_box grid at the FINEST step of the step sequence (the step
+# .ui_solver_args() passes for the "verify" target), times all factor levels.
+# Closed form -- no grid is built.
+.ui_verify_points <- function(spec) {
+  db  <- spec$design_box
+  fac <- vapply(db, function(b) length(b) == 1L, logical(1))
+  nlev <- if (any(fac)) prod(vapply(db[fac], as.numeric, numeric(1))) else 1
+  if (!length(spec$finest)) return(nlev)                         # all-factor
+  rng <- vapply(db[!fac], function(b) b[2] - b[1], numeric(1))
+  nlev * prod(round(rng / spec$finest) + 1)
 }
 
 # within-kind index + kind ("f"/"x") for each covariate, in display order.
@@ -444,8 +473,11 @@
 
 # ---- efficiency of a derived design under a DIFFERENT criterion ------------
 # Efficiency only means anything against the design that is optimal FOR that
-# criterion, so this re-solves for the reference.  Both criteria are evaluated
-# with the same existing design, so they live on the same scale.
+# criterion, so this re-solves for the reference -- with the EXACT same
+# step_sequence the original criterion used (it is carried in `spec`).  The
+# design's own criterion needs no grid at all (criterion_only), so the
+# reference solve is the only grid search in this computation.  Both criteria
+# are evaluated with the same existing design, so they live on the same scale.
 #   D (p = 0): the criterion is a log       -> eff = exp(crit_ref - crit_design)
 #   A (p = 1): the criterion is an average  -> eff = crit_ref / crit_design
 # Both are <= 1 because the criterion is minimised.
@@ -453,7 +485,8 @@
                            existing = NULL) {
   p_new <- .check_criterion(p_new)
   v <- do.call(verify_optimality,
-               c(list(support = res$support, weights = res$weights),
+               c(list(support = res$support, weights = res$weights,
+                      criterion_only = TRUE),
                  .ui_solver_args(spec, "verify", theta, p_new, subset_new,
                                  existing)))
   ref <- do.call(optimal_design,

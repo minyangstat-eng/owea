@@ -115,6 +115,25 @@ candidate_grid <- function(design_box, step) {
   make_grid(lo, hi, byv)        # factor dims yield exactly 1..nlevels[j]
 }
 
+# Internal: infinity-norm distance from each row of `pts` to its nearest point
+# of the FULL design_box + step grid, without building or scanning the grid.
+# The grid is a Cartesian product of per-covariate axes, so the nearest grid
+# point is the coordinate-wise nearest axis value: continuous dim j has axis
+# lo[j] + k*by[j], k = 0..round((hi[j]-lo[j])/by[j]) (as in make_grid); factor
+# dims enumerate 1..nlevels[j].  O(m*d) instead of O(m*N*d).
+.offgrid_dmax <- function(pts, lo, hi, by, is_factor, nlevels) {
+  pts <- as.matrix(pts)
+  dev <- matrix(0, nrow(pts), ncol(pts))
+  for (j in seq_len(ncol(pts))) {
+    ax_lo <- if (is_factor[j]) 1 else lo[j]
+    b     <- if (is_factor[j]) 1 else by[j]
+    kmax  <- if (is_factor[j]) nlevels[j] - 1 else round((hi[j] - lo[j]) / b)
+    k <- pmin(pmax(round((pts[, j] - ax_lo) / b), 0), kmax)
+    dev[, j] <- abs(pts[, j] - (ax_lo + k * b))
+  }
+  apply(dev, 1, max)
+}
+
 # Internal: factor-aware refined grid.  Continuous dims use the same
 # neighbourhood-refinement logic as refined_grid(); factor dims always enumerate
 # ALL their levels at every stage (categorical dims are not refined).  Delegates

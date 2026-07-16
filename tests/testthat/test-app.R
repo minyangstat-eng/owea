@@ -48,6 +48,38 @@ test_that(".ui_grid_sizes counts the grid at each step and flags huge grids", {
   expect_gt(max(big), 1e5)
 })
 
+test_that(".ui_verify_points counts the finest-step verify grid", {
+  covs <- list(list(name = "A", type = "factor", nlevels = 3),
+               list(name = "B", type = "continuous", lo = 0, hi = 10,
+                    steps = c(2, 1)))
+  sp <- owea:::.ui_model_spec(covs, link = "identity")
+  expect_equal(owea:::.ui_verify_points(sp), 33)   # finest stage: 3 * (10/1 + 1)
+  gs <- owea:::.ui_grid_sizes(covs)                # = last stage of the sequence
+  expect_equal(owea:::.ui_verify_points(sp), gs[length(gs)])
+  # all-factor spec: just the level combinations
+  spf <- owea:::.ui_model_spec(
+    list(list(name = "A", type = "factor", nlevels = 2),
+         list(name = "B", type = "factor", nlevels = 3)),
+    link = "identity")
+  expect_equal(owea:::.ui_verify_points(spf), 6)
+})
+
+test_that(".ui_parse_steps parses the grid step(s) text box", {
+  expect_equal(owea:::.ui_parse_steps("0.1"), 0.1)
+  expect_equal(owea:::.ui_parse_steps(" 0.5, 0.1,0.02 "), c(0.5, 0.1, 0.02))
+  expect_equal(owea:::.ui_parse_steps(0.25), 0.25)          # numeric passthrough
+  expect_equal(owea:::.ui_parse_steps(c(0.5, 0.1)), c(0.5, 0.1))
+  expect_identical(owea:::.ui_parse_steps(""), numeric(0))
+  expect_identical(owea:::.ui_parse_steps("  ,  "), numeric(0))
+  # ANY bad token empties the whole sequence -- a typo must not be dropped
+  # silently, it must trip .ui_design_box's error
+  expect_identical(owea:::.ui_parse_steps("0.5, abc"), numeric(0))
+  expect_error(owea:::.ui_design_box(list(
+    list(name = "x", type = "continuous", lo = 0, hi = 1,
+         steps = owea:::.ui_parse_steps("0.5, abc")))),
+    "step sequence of positive numbers")
+})
+
 test_that(".ui_design_box rejects bad ranges / levels", {
   expect_error(owea:::.ui_design_box(list(
     list(name = "A", type = "continuous", lo = 1, hi = 0, steps = 0.1))),
@@ -159,6 +191,15 @@ test_that(".ui_solver_args always emits the coding and shapes each target", {
   expect_equal(v$step, sp$finest)                  # a step, not a step_sequence
   expect_null(v$step_sequence)
   expect_identical(v$max_points, Inf)
+
+  # with a multi-step sequence, verification uses the LAST (finest) step
+  sp2 <- owea:::.ui_model_spec(
+    list(list(name = "dose", type = "continuous", lo = -1, hi = 1,
+              steps = owea:::.ui_parse_steps("0.5, 0.1"))),
+    link = "identity")
+  v2 <- owea:::.ui_solver_args(sp2, "verify")
+  expect_equal(v2$step, 0.1)
+  expect_equal(v2$step, sp2$finest)
   f <- owea:::.ui_solver_args(sp, "fit")
   expect_false("theta" %in% names(f))              # fitting estimates theta
   expect_false("p" %in% names(f))
@@ -347,6 +388,9 @@ test_that(".ui_efficiency is 1 under the same criterion and < 1 under the other"
                                   owea:::.ui_solver_args(sp, "optimal", p = 0)))
   same <- suppressWarnings(owea:::.ui_efficiency(res, sp, p_new = 0L))
   expect_equal(same$efficiency, 1, tolerance = 1e-4)
+  # the design's own criterion is evaluated grid-free (criterion_only), so the
+  # only grid search is the reference solve with the ORIGINAL step_sequence
+  expect_identical(same$max_sensitivity, NA_real_)
 
   # the D-optimal design is not A-optimal for a proper subset of the parameters
   sp2 <- owea:::.ui_model_spec(

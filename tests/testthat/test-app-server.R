@@ -12,10 +12,10 @@ app_env <- function() {
 }
 
 # one continuous covariate, so the model step is satisfied by the defaults
-set_model <- function(session, link = "identity", ...) {
+set_model <- function(session, link = "identity", cov_step_1 = "0.25", ...) {
   session$setInputs(link = link, ncov = 1, cov_name_1 = "dose",
                     cov_type_1 = "continuous", cov_lo_1 = -1, cov_hi_1 = 1,
-                    cov_step_1 = 0.25, crit = "0", qoi = "all", ...)
+                    cov_step_1 = cov_step_1, crit = "0", qoi = "all", ...)
 }
 
 test_that("the wizard skips the theta step for the identity link", {
@@ -147,6 +147,110 @@ test_that("the simulation study pools the existing stage with the new runs", {
     expect_equal(s$N, 14L)                      # 6 observed + 8 new, pooled
     expect_equal(s$n_existing, 6L)
     expect_equal(s$n_new, 8L)
+  })
+})
+
+test_that("a huge grid blocks Next on the model step until acknowledged", {
+  skip_if_not_installed("shiny"); skip_if_not_installed("DT")
+  e <- app_env()
+  shiny::testServer(e$server, {
+    set_model(session, link = "identity", start = "none",
+              cov_step_1 = "0.000001")          # (2 / 1e-6) + 1 > 1e6 points
+    expect_gt(grid_sizes()[1], 1e6)
+    session$setInputs(next_btn = 1)             # blocked: warning, no advance
+    expect_equal(cur(), "model")
+    session$setInputs(grid_proceed = 1)         # "Proceed anyway"
+    expect_equal(cur(), "start")
+    session$setInputs(back_btn = 1)             # back to the model step
+    expect_equal(cur(), "model")
+    session$setInputs(next_btn = 2)             # unchanged grid: no re-prompt
+    expect_equal(cur(), "start")
+    session$setInputs(cov_step_1 = "0.0000005") # a CHANGED grid re-arms it
+    session$setInputs(back_btn = 2)
+    session$setInputs(next_btn = 3)
+    expect_equal(cur(), "model")
+  })
+})
+
+test_that("a step sequence gates on its FIRST (coarsest) grid only", {
+  skip_if_not_installed("shiny"); skip_if_not_installed("DT")
+  e <- app_env()
+  shiny::testServer(e$server, {
+    # fine finest step, but a coarse FIRST step: passes without a warning
+    set_model(session, link = "identity", start = "none",
+              cov_step_1 = "0.5, 0.001")
+    expect_equal(length(spec()$step_sequence), 2L)
+    expect_equal(grid_sizes(), c(5, 2001))      # coarsest first
+    session$setInputs(next_btn = 1)
+    expect_equal(cur(), "start")
+
+    # a sequence whose FIRST grid is already huge is blocked
+    session$setInputs(cov_step_1 = "0.000001, 0.0000005")
+    session$setInputs(back_btn = 1)
+    session$setInputs(next_btn = 2)
+    expect_equal(cur(), "model")
+    session$setInputs(grid_proceed = 1)         # "Proceed anyway"
+    expect_equal(cur(), "start")
+  })
+})
+
+test_that("the review step reports the candidate-set size", {
+  skip_if_not_installed("shiny"); skip_if_not_installed("DT")
+  e <- app_env()
+  shiny::testServer(e$server, {
+    set_model(session, link = "identity", start = "none")
+    expect_match(output$review_out$html,
+                 "Candidate set: 9 design points")           # (2/0.25) + 1
+    session$setInputs(cov_step_1 = "0.5, 0.25")
+    expect_match(output$review_out$html,
+                 "Candidate set: 5 design points (first step of the step sequence)",
+                 fixed = TRUE)
+  })
+})
+
+test_that("a comma step sequence flows through compute to the solver", {
+  skip_if_not_installed("shiny"); skip_if_not_installed("DT")
+  e <- app_env()
+  shiny::testServer(e$server, {
+    set_model(session, link = "identity", start = "none",
+              cov_step_1 = "0.5, 0.25")
+    session$setInputs(compute = 1)
+    cc <- computed()
+    expect_null(cc$error)
+    expect_equal(cc$args$step_sequence, list(0.5, 0.25))
+    expect_equal(cur(), "results")
+  })
+})
+
+test_that("verify panel checks the ORIGINAL criterion at the finest step", {
+  skip_if_not_installed("shiny"); skip_if_not_installed("DT")
+  e <- app_env()
+  shiny::testServer(e$server, {
+    set_model(session, link = "identity", start = "none",
+              cov_step_1 = "0.5, 0.25")
+    session$setInputs(compute = 1)
+    expect_null(computed()$error)
+
+    # the args verify will use: original criterion, finest step of the sequence
+    a <- owea:::.ui_solver_args(computed()$sp, "verify", computed()$theta,
+                                computed()$p, computed()$subset,
+                                computed()$existing)
+    expect_equal(a$p, 0L)                        # the criterion chosen at compute
+    expect_equal(a$step, 0.25)                   # finest step of "0.5, 0.25"
+
+    session$setInputs(verify_manual = "dose,weight\n-1,0.5\n1,0.5",
+                      verify_btn = 1)
+    v <- rv$verify$v
+    expect_false(inherits(v, "owea_bad"))
+    expect_true(is.finite(v$max_sensitivity))    # small grid: full check ran
+    expect_true(v$is_optimal$value)              # +/-1 at 1/2 IS D-optimal
+
+    # the modal's "criterion only" option: same criterion, no optimality claim
+    session$setInputs(verify_crit_only = 1)
+    v2 <- rv$verify$v
+    expect_identical(v2$max_sensitivity, NA_real_)
+    expect_identical(v2$is_optimal$value, NA)
+    expect_equal(v2$criterion, v$criterion)
   })
 })
 

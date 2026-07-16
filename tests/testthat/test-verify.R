@@ -58,6 +58,27 @@ test_that("support points off the grid warn but still return a result", {
   expect_true(is.finite(v$max_sensitivity))
 })
 
+test_that(".offgrid_dmax matches the full grid scan, coordinate by coordinate", {
+  box <- list(A = 3, x = c(-1, 1), z = c(0, 10))
+  m   <- owea:::.parse_design_box(box)
+  by  <- owea:::.expand_stage_step(c(0.25, 2), m$is_factor,
+                                   sum(!m$is_factor), length(box))
+  pts <- rbind(c(1, -0.25, 4),     # exactly on the grid
+               c(3, 0.13, 4),      # x between grid points (nearest 0.25)
+               c(2, 1.4, 11))      # outside the box in x and z
+  fast <- owea:::.offgrid_dmax(pts, m$lo, m$hi, by, m$is_factor, m$nlevels)
+
+  # reference: infinity-norm distance to the nearest row of the BUILT grid
+  X    <- candidate_grid(box, c(0.25, 2))
+  idx  <- owea:::.nearest_idx(X, pts)
+  slow <- vapply(seq_len(nrow(pts)),
+                 function(i) max(abs(pts[i, ] - X[idx[i], ])), numeric(1))
+  expect_equal(fast, slow)
+  expect_equal(fast[1], 0)                       # on-grid point has zero deviation
+  expect_gt(fast[2], 1e-6)                       # off-grid point is flagged
+  expect_gt(fast[3], 1e-6)                       # out-of-box point is flagged
+})
+
 test_that("candidate_set path verifies and warns on non-members", {
   X <- matrix(seq(-1, 1, by = 0.1), ncol = 1)
   res <- suppressWarnings(optimal_design(info_matrix = lin_info,
@@ -78,9 +99,48 @@ test_that("max_points caps the design_box grid (non-interactive -> error)", {
   expect_error(verify_optimality(matrix(0, 1, 1), 1, info_matrix = lin_info,
     design_box = list(c(0, 1)), step = 0.001, p = 0, max_points = 100),
     "max_points")
+  # the message offers the criterion-only escape hatch
+  expect_error(verify_optimality(matrix(0, 1, 1), 1, info_matrix = lin_info,
+    design_box = list(c(0, 1)), step = 0.001, p = 0, max_points = 100),
+    "criterion_only")
   # a modest grid under the default cap runs fine
   expect_error(verify_optimality(matrix(c(-1, 1), 2, 1), c(0.5, 0.5),
     info_matrix = lin_info, design_box = list(c(-1, 1)), step = 0.05, p = 0), NA)
+})
+
+test_that("criterion_only returns the criterion without the sensitivity scan", {
+  sup <- matrix(c(-1, 1), 2, 1); w <- c(0.5, 0.5)
+  full <- verify_optimality(sup, w, info_matrix = lin_info,
+                            design_box = list(c(-1, 1)), step = 0.05, p = 0)
+  co   <- verify_optimality(sup, w, info_matrix = lin_info,
+                            design_box = list(c(-1, 1)), step = 0.05, p = 0,
+                            criterion_only = TRUE)
+  expect_equal(co$criterion, full$criterion)           # same criterion value
+  expect_equal(co$information, full$information)       # same information matrix
+  expect_identical(co$max_sensitivity, NA_real_)       # no sensitivity computed
+  expect_identical(co$is_optimal$value, NA)            # optimality NOT assessed
+  expect_match(co$is_optimal$note, "criterion_only")
+  expect_null(co$maximiser)
+})
+
+test_that("criterion_only never builds the grid, so any grid size works", {
+  # ~1e9 grid points with max_points = 100: full verify would refuse, but
+  # criterion_only runs instantly and silently
+  expect_warning(
+    v <- verify_optimality(matrix(c(0, 1), 2, 1), c(0.5, 0.5),
+      info_matrix = lin_info, design_box = list(c(0, 1)), step = 1e-9, p = 0,
+      max_points = 100, criterion_only = TRUE),
+    NA)
+  expect_true(is.finite(v$criterion))
+
+  # the design is STILL validated: bad weights are hard errors ...
+  expect_error(verify_optimality(matrix(c(0, 1), 2, 1), c(0.6, 0.6),
+    info_matrix = lin_info, design_box = list(c(0, 1)), step = 1e-9, p = 0,
+    criterion_only = TRUE), "sum to 1")
+  # ... and off-grid support points still warn (checked without the grid)
+  expect_warning(verify_optimality(matrix(c(0.25, 1), 2, 1), c(0.5, 0.5),
+    info_matrix = lin_info, design_box = list(c(0, 1)), step = 0.4, p = 0,
+    criterion_only = TRUE), "not among the design points")
 })
 
 test_that("works with a formula-style model spec (logit)", {
