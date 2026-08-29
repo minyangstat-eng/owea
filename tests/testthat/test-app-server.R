@@ -11,9 +11,12 @@ app_env <- function() {
   e
 }
 
-# one continuous covariate, so the model step is satisfied by the defaults
+# one continuous covariate, so the model step is satisfied by the defaults.
+# mode_choice picks the classical branch: the wizard now opens on the "mode"
+# screen, and every test below is about the classical chain that follows it.
 set_model <- function(session, link = "identity", cov_step_1 = "0.25", ...) {
-  session$setInputs(link = link, ncov = 1, cov_name_1 = "dose",
+  session$setInputs(mode_choice = "classical",
+                    link = link, ncov = 1, cov_name_1 = "dose",
                     cov_type_1 = "continuous", cov_lo_1 = -1, cov_hi_1 = 1,
                     cov_step_1 = cov_step_1, crit = "0", qoi = "all", ...)
 }
@@ -24,6 +27,8 @@ test_that("the wizard skips the theta step for the identity link", {
   shiny::testServer(e$server, {
     set_model(session, link = "identity", start = "none")
     expect_false("theta" %in% steps())
+    expect_equal(cur(), "mode")            # the wizard opens on the mode screen
+    goto("model")                          # ... and this test is about what follows
     expect_equal(cur(), "model")
 
     session$setInputs(next_btn = 1)                  # model -> start
@@ -150,6 +155,74 @@ test_that("the simulation study pools the existing stage with the new runs", {
   })
 })
 
+test_that("the simulation table gains a ratio column per compared design", {
+  skip_if_not_installed("shiny"); skip_if_not_installed("DT")
+  e <- app_env()
+  shiny::testServer(e$server, {
+    set_model(session, link = "identity", start = "none",
+              design_type = "exact", n_new = 12, seed = 1)
+    session$setInputs(compute = 1)
+    expect_null(computed()$error)
+
+    # nothing run yet: no matrices, so the table stays empty
+    session$setInputs(sim_open = 1, sim_theta_1 = 1, sim_theta_2 = 2,
+                      sim_sigma = 1, sim_nsim = 20, sim_seed = 1)
+    expect_null(sim_mats()[["Mean squared error"]])
+
+    # the computed design alone: nothing to compare it against, so no ratio
+    session$setInputs(run_sim = 1)
+    m <- sim_mats()
+    expect_equal(rownames(m[["Mean squared error"]]), "Exact design")
+    expect_equal(colnames(m[["Mean squared error"]]), computed()$coef_names)
+    expect_equal(dim(m[["Median squared error"]]),
+                 dim(m[["Mean squared error"]]))
+    expect_false(grepl("/ Exact design", output$sim_tbl, fixed = TRUE))
+
+    # a compared design becomes a second row, and brings a ratio column with it
+    session$setInputs(run_srs = 1)
+    m2 <- sim_mats()
+    expect_equal(rownames(m2[["Mean squared error"]]), c("Exact design", "SRS"))
+    expect_equal(rownames(m2[["Median squared error"]]),
+                 c("Exact design", "SRS"))
+
+    tbl <- output$sim_tbl
+    expect_true(all(vapply(
+      c("Exact design (MSE)", "SRS (MSE)", "SRS / Exact design (MSE)",
+        "Exact design (median SE)", "SRS (median SE)",
+        "SRS / Exact design (median SE)"),
+      function(s) grepl(s, tbl, fixed = TRUE), logical(1))))
+    # the reference design never gets a ratio against itself
+    expect_false(grepl("Exact design / Exact design", tbl, fixed = TRUE))
+
+    # and the printed ratio really is SRS / Exact design, per parameter
+    R <- owea:::.ui_sim_ratio(m2[["Mean squared error"]], "Exact design")
+    expect_equal(as.numeric(R["SRS", ]),
+                 as.numeric(m2[["Mean squared error"]]["SRS", ] /
+                            m2[["Mean squared error"]]["Exact design", ]))
+    # the note explains which way round it reads
+    expect_match(output$sim_note$html, "ratios", fixed = TRUE)
+  })
+})
+
+test_that("an exact design's sample size defaults to 200", {
+  skip_if_not_installed("shiny"); skip_if_not_installed("DT")
+  e <- app_env()
+  shiny::testServer(e$server, {
+    set_model(session, link = "identity", start = "none", design_type = "exact")
+    expect_match(output$n_ui$html, 'value="200"')
+
+    # the same box means the new stage's size for an approximate design, which
+    # keeps its own (much smaller) default
+    session$setInputs(design_type = "approx", start = "design",
+                      exist_text = "dose,count\n-1,15\n1,15", exist_n0 = 30)
+    expect_match(output$n_ui$html, 'value="20"')
+
+    # a value the user typed survives a flip between the two design types
+    session$setInputs(n_new = 137, design_type = "exact")
+    expect_match(output$n_ui$html, 'value="137"')
+  })
+})
+
 test_that("a huge grid blocks Next on the model step until acknowledged", {
   skip_if_not_installed("shiny"); skip_if_not_installed("DT")
   e <- app_env()
@@ -179,6 +252,7 @@ test_that("a step sequence gates on its FIRST (coarsest) grid only", {
     # fine finest step, but a coarse FIRST step: passes without a warning
     set_model(session, link = "identity", start = "none",
               cov_step_1 = "0.5, 0.001")
+    goto("model")                               # past the mode screen
     expect_equal(length(spec()$step_sequence), 2L)
     expect_equal(grid_sizes(), c(5, 2001))      # coarsest first
     session$setInputs(next_btn = 1)

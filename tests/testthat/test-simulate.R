@@ -109,3 +109,33 @@ test_that("simulate_design accepts an exact_design object", {
   expect_equal(r$N, 30L)
   expect_length(r$theta_hat, 2L)
 })
+
+test_that("simulate_design reports a median squared error beside the mean", {
+  s <- simulate_design(support = cbind(c(-1, 0, 1)), counts = c(20, 20, 20),
+                       link = "logit", x = 1, theta = c(0.5, 1),
+                       nsim = 100, seed = 4)
+  expect_length(s$medse, length(s$mse))
+  expect_equal(names(s$medse), names(s$mse))
+  expect_true(all(s$medse >= 0))
+  expect_true(all(is.finite(s$medse)))
+
+  # the median is what a typical replicate achieved, so it must equal the
+  # median of the squared errors actually stored in `estimates`
+  ok <- stats::complete.cases(s$estimates)
+  sq <- sweep(s$estimates[ok, , drop = FALSE], 2, s$theta, "-")^2
+  expect_equal(as.numeric(s$medse), as.numeric(apply(sq, 2, stats::median)))
+
+  # and, unlike the mean, it is not moved by one wild replicate
+  expect_equal(unname(s$mse), unname(colMeans(sq)))
+  expect_true(all(s$medse <= s$mse * 1.5 + 1e-8))
+})
+
+test_that("simulate_design keeps every documented field for nsim > 1", {
+  s <- simulate_design(support = cbind(c(-1, 1)), counts = c(25, 25),
+                       link = "identity", x = 1, theta = c(0, 1),
+                       nsim = 40, seed = 2)
+  expect_true(all(c("estimates", "theta", "coef_names", "link", "N", "nsim",
+                    "n_converged", "theta_hat_mean", "bias", "mse", "medse",
+                    "cov_empirical", "cov_design", "se_empirical", "se_design")
+                  %in% names(s)))
+})

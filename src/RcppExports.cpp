@@ -11,6 +11,136 @@ Rcpp::Rostream<true>&  Rcpp::Rcout = Rcpp::Rcpp_cout_get();
 Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 #endif
 
+// compound_criterion_cpp
+double compound_criterion_cpp(List info_data, IntegerVector info_mode, List wb, List infor0, IntegerVector pp, NumericVector at, IntegerVector idx, NumericVector w);
+RcppExport SEXP _owea_compound_criterion_cpp(SEXP info_dataSEXP, SEXP info_modeSEXP, SEXP wbSEXP, SEXP infor0SEXP, SEXP ppSEXP, SEXP atSEXP, SEXP idxSEXP, SEXP wSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< List >::type info_data(info_dataSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type info_mode(info_modeSEXP);
+    Rcpp::traits::input_parameter< List >::type wb(wbSEXP);
+    Rcpp::traits::input_parameter< List >::type infor0(infor0SEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type pp(ppSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type at(atSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type idx(idxSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type w(wSEXP);
+    rcpp_result_gen = Rcpp::wrap(compound_criterion_cpp(info_data, info_mode, wb, infor0, pp, at, idx, w));
+    return rcpp_result_gen;
+END_RCPP
+}
+// compound_psi_cpp
+NumericVector compound_psi_cpp(List info_data, IntegerVector info_mode, List wb, List infor0, IntegerVector pp, NumericVector at, IntegerVector idx, NumericVector w);
+RcppExport SEXP _owea_compound_psi_cpp(SEXP info_dataSEXP, SEXP info_modeSEXP, SEXP wbSEXP, SEXP infor0SEXP, SEXP ppSEXP, SEXP atSEXP, SEXP idxSEXP, SEXP wSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< List >::type info_data(info_dataSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type info_mode(info_modeSEXP);
+    Rcpp::traits::input_parameter< List >::type wb(wbSEXP);
+    Rcpp::traits::input_parameter< List >::type infor0(infor0SEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type pp(ppSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type at(atSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type idx(idxSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type w(wSEXP);
+    rcpp_result_gen = Rcpp::wrap(compound_psi_cpp(info_data, info_mode, wb, infor0, pp, at, idx, w));
+    return rcpp_result_gen;
+END_RCPP
+}
+// compound_dirderiv_cpp
+NumericVector compound_dirderiv_cpp(List info_data, IntegerVector info_mode, List wb, List infor0, IntegerVector pp, NumericVector at, IntegerVector idx, NumericVector w);
+RcppExport SEXP _owea_compound_dirderiv_cpp(SEXP info_dataSEXP, SEXP info_modeSEXP, SEXP wbSEXP, SEXP infor0SEXP, SEXP ppSEXP, SEXP atSEXP, SEXP idxSEXP, SEXP wSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< List >::type info_data(info_dataSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type info_mode(info_modeSEXP);
+    Rcpp::traits::input_parameter< List >::type wb(wbSEXP);
+    Rcpp::traits::input_parameter< List >::type infor0(infor0SEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type pp(ppSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type at(atSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type idx(idxSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type w(wSEXP);
+    rcpp_result_gen = Rcpp::wrap(compound_dirderiv_cpp(info_data, info_mode, wb, infor0, pp, at, idx, w));
+    return rcpp_result_gen;
+END_RCPP
+}
+// compound_verify_cpp
+List compound_verify_cpp(List info_data, IntegerVector info_mode, List wb, List infor0, IntegerVector pp, NumericVector at, IntegerVector idx, NumericVector w);
+RcppExport SEXP _owea_compound_verify_cpp(SEXP info_dataSEXP, SEXP info_modeSEXP, SEXP wbSEXP, SEXP infor0SEXP, SEXP ppSEXP, SEXP atSEXP, SEXP idxSEXP, SEXP wSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< List >::type info_data(info_dataSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type info_mode(info_modeSEXP);
+    Rcpp::traits::input_parameter< List >::type wb(wbSEXP);
+    Rcpp::traits::input_parameter< List >::type infor0(infor0SEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type pp(ppSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type at(atSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type idx(idxSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type w(wSEXP);
+    rcpp_result_gen = Rcpp::wrap(compound_verify_cpp(info_data, info_mode, wb, infor0, pp, at, idx, w));
+    return rcpp_result_gen;
+END_RCPP
+}
+// compound_grad_hess_cpp
+List compound_grad_hess_cpp(List info_data, IntegerVector info_mode, List wb, List infor0, IntegerVector pp, NumericVector at, IntegerVector idx, NumericVector w);
+RcppExport SEXP _owea_compound_grad_hess_cpp(SEXP info_dataSEXP, SEXP info_modeSEXP, SEXP wbSEXP, SEXP infor0SEXP, SEXP ppSEXP, SEXP atSEXP, SEXP idxSEXP, SEXP wSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< List >::type info_data(info_dataSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type info_mode(info_modeSEXP);
+    Rcpp::traits::input_parameter< List >::type wb(wbSEXP);
+    Rcpp::traits::input_parameter< List >::type infor0(infor0SEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type pp(ppSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type at(atSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type idx(idxSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type w(wSEXP);
+    rcpp_result_gen = Rcpp::wrap(compound_grad_hess_cpp(info_data, info_mode, wb, infor0, pp, at, idx, w));
+    return rcpp_result_gen;
+END_RCPP
+}
+// compound_weights_cpp
+List compound_weights_cpp(List info_data, IntegerVector info_mode, List wb, List infor0, IntegerVector pp, NumericVector at, IntegerVector idx, NumericVector w, int min_support);
+RcppExport SEXP _owea_compound_weights_cpp(SEXP info_dataSEXP, SEXP info_modeSEXP, SEXP wbSEXP, SEXP infor0SEXP, SEXP ppSEXP, SEXP atSEXP, SEXP idxSEXP, SEXP wSEXP, SEXP min_supportSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< List >::type info_data(info_dataSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type info_mode(info_modeSEXP);
+    Rcpp::traits::input_parameter< List >::type wb(wbSEXP);
+    Rcpp::traits::input_parameter< List >::type infor0(infor0SEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type pp(ppSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type at(atSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type idx(idxSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type w(wSEXP);
+    Rcpp::traits::input_parameter< int >::type min_support(min_supportSEXP);
+    rcpp_result_gen = Rcpp::wrap(compound_weights_cpp(info_data, info_mode, wb, infor0, pp, at, idx, w, min_support));
+    return rcpp_result_gen;
+END_RCPP
+}
+// compound_appro_opt_cpp
+List compound_appro_opt_cpp(List info_data, IntegerVector info_mode, List wb, List infor0, IntegerVector pp, NumericVector at, IntegerVector init_idx, int min_support, int max_iter, double tol, bool verbose);
+RcppExport SEXP _owea_compound_appro_opt_cpp(SEXP info_dataSEXP, SEXP info_modeSEXP, SEXP wbSEXP, SEXP infor0SEXP, SEXP ppSEXP, SEXP atSEXP, SEXP init_idxSEXP, SEXP min_supportSEXP, SEXP max_iterSEXP, SEXP tolSEXP, SEXP verboseSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< List >::type info_data(info_dataSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type info_mode(info_modeSEXP);
+    Rcpp::traits::input_parameter< List >::type wb(wbSEXP);
+    Rcpp::traits::input_parameter< List >::type infor0(infor0SEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type pp(ppSEXP);
+    Rcpp::traits::input_parameter< NumericVector >::type at(atSEXP);
+    Rcpp::traits::input_parameter< IntegerVector >::type init_idx(init_idxSEXP);
+    Rcpp::traits::input_parameter< int >::type min_support(min_supportSEXP);
+    Rcpp::traits::input_parameter< int >::type max_iter(max_iterSEXP);
+    Rcpp::traits::input_parameter< double >::type tol(tolSEXP);
+    Rcpp::traits::input_parameter< bool >::type verbose(verboseSEXP);
+    rcpp_result_gen = Rcpp::wrap(compound_appro_opt_cpp(info_data, info_mode, wb, infor0, pp, at, init_idx, min_support, max_iter, tol, verbose));
+    return rcpp_result_gen;
+END_RCPP
+}
 // criterion_cpp
 double criterion_cpp(int pp, IntegerVector idx, NumericVector w, int info_mode, const arma::mat& info_data, const arma::mat& wb, const arma::mat& infor0);
 RcppExport SEXP _owea_criterion_cpp(SEXP ppSEXP, SEXP idxSEXP, SEXP wSEXP, SEXP info_modeSEXP, SEXP info_dataSEXP, SEXP wbSEXP, SEXP infor0SEXP) {
@@ -98,6 +228,13 @@ END_RCPP
 }
 
 static const R_CallMethodDef CallEntries[] = {
+    {"_owea_compound_criterion_cpp", (DL_FUNC) &_owea_compound_criterion_cpp, 8},
+    {"_owea_compound_psi_cpp", (DL_FUNC) &_owea_compound_psi_cpp, 8},
+    {"_owea_compound_dirderiv_cpp", (DL_FUNC) &_owea_compound_dirderiv_cpp, 8},
+    {"_owea_compound_verify_cpp", (DL_FUNC) &_owea_compound_verify_cpp, 8},
+    {"_owea_compound_grad_hess_cpp", (DL_FUNC) &_owea_compound_grad_hess_cpp, 8},
+    {"_owea_compound_weights_cpp", (DL_FUNC) &_owea_compound_weights_cpp, 9},
+    {"_owea_compound_appro_opt_cpp", (DL_FUNC) &_owea_compound_appro_opt_cpp, 11},
     {"_owea_criterion_cpp", (DL_FUNC) &_owea_criterion_cpp, 7},
     {"_owea_verify_equiv_cpp", (DL_FUNC) &_owea_verify_equiv_cpp, 6},
     {"_owea_directional_deriv_cpp", (DL_FUNC) &_owea_directional_deriv_cpp, 6},

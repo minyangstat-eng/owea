@@ -40,3 +40,11 @@ export(initial_support)
 export(merge_close_points)
 export(print_design)
 export(print_result)
+
+# --- compound (multi-criterion / multi-model) designs ---
+export(compound_design)
+export(compound_exact_design)
+export(compound_criterion)
+export(compound_sensitivity)
+S3method(print, compound_design)
+S3method(print, compound_exact_design)

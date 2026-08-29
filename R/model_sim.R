@@ -185,10 +185,21 @@
 #'   with \code{estimates} (\code{nsim} \eqn{\times} k), \code{theta_hat_mean},
 #'   \code{bias}, \code{mse} (per-parameter mean squared error
 #'   \eqn{\mathrm{E}[(\hat\theta-\theta)^2]} over the converged replicates,
-#'   \eqn{= \mathrm{bias}^2 + \mathrm{variance}}), \code{cov_empirical},
+#'   \eqn{= \mathrm{bias}^2 + \mathrm{variance}}), \code{medse} (the
+#'   per-parameter MEDIAN squared error over the same replicates),
+#'   \code{cov_empirical},
 #'   \code{cov_design} (\eqn{M(\xi,\theta)^{-1}/N}, times \eqn{\sigma^2} for
 #'   identity), \code{se_empirical}, \code{se_design} and \code{n_converged}. Both carry
 #'   \code{theta}, \code{coef_names}, \code{link} and \code{N}.
+#' @section Reading \code{mse} and \code{medse} together:
+#'   For a binary or count response a design concentrated on few distinct
+#'   points can, in a given replicate, leave the response perfectly predicted.
+#'   The fit still reports convergence, but the coefficients run away, and a
+#'   single such replicate can dominate a mean squared error --- so a design
+#'   that is better on average may appear far worse. \code{medse} is unaffected
+#'   by a handful of such replicates, and a large gap between \code{mse} and
+#'   \code{medse} is itself the diagnostic. Compare both, and compare them
+#'   against \code{cov_design}, which is the large-sample expectation.
 #' @seealso \code{\link{optimal_design}}, \code{\link{exact_design}},
 #'   \code{\link{design_information}}.
 #' @export
@@ -288,12 +299,20 @@ simulate_design <- function(support, counts = NULL, link = NULL,
   dimnames(cov_design) <- list(plan$coef_names, plan$coef_names)
 
   ok <- which(conv)
+  sq <- sweep(E[ok, , drop = FALSE], 2, theta, "-")^2      # squared errors
   list(estimates = E, theta = theta, coef_names = plan$coef_names,
        link = plan$link, ncat = plan$ncat, N = N, nsim = nsim,
        n_converged = length(ok),
        theta_hat_mean = colMeans(E[ok, , drop = FALSE]),
        bias = colMeans(E[ok, , drop = FALSE]) - theta,
-       mse = colMeans(sweep(E[ok, , drop = FALSE], 2, theta, "-")^2),
+       mse = colMeans(sq),
+       # The MEDIAN squared error, reported beside the mean.  For a binary or
+       # count response a design concentrated on few distinct points can
+       # separate in the odd replicate; the fit still "converges" but the
+       # coefficients run away, and one such replicate can dominate a mean.
+       # The median says what a typical replicate achieved, so a large gap
+       # between the two is itself the diagnostic.
+       medse = apply(sq, 2, stats::median),
        cov_empirical = stats::cov(E[ok, , drop = FALSE]),
        cov_design = cov_design,
        se_empirical = apply(E[ok, , drop = FALSE], 2, stats::sd),

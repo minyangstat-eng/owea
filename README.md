@@ -24,6 +24,16 @@ criterion, and assumed parameter values — and get the design as a table, a plo
 and the information matrix, with a CSV download. It hides the package's internal
 conventions (factor coding, term indices, interaction codes).
 
+The first screen asks which kind of problem you have:
+
+- **One criterion (classical).** One model, one objective — a D- or A-optimal
+  design, optionally for a subset of the parameters. This is the wizard
+  described below, unchanged.
+- **Several criteria at once (compound).** More than one objective, and they
+  may come from **different models**. One design is found that serves them
+  all, weighted as you choose — approximate or exact, with its own efficiency
+  report, design scoring and simulation study. See §16.
+
 Highlights of the wizard:
 
 - **Grid step(s) / step sequence.** Each continuous covariate takes one grid
@@ -43,8 +53,17 @@ Highlights of the wizard:
   the *exact same step sequence* as the original.
 - **Existing designs and data.** An existing design or raw data set can be
   reused as a first stage; a data set can also supply the assumed parameter
-  values by fitting the model (`fit_design()`). Exact (integer-run) designs
-  include a simulation study.
+  values by fitting the model (`fit_design()`).
+- **Simulation study** (exact designs, in **both** branches). Data are
+  generated at the design, the same model is fitted back, and the
+  per-parameter **mean and median squared error** are averaged over the
+  replications. The computed design can be compared against a simple random
+  sample of the same size and against any design you paste in; every
+  comparison design also gets a **ratio column** — its error divided by the
+  computed design's, so above 1 the computed design is the more precise one
+  for that parameter. The raw errors sit on each parameter's own scale, so the
+  ratio is what compares designs across a row. Exact designs offer `n = 200`
+  runs by default.
 
 - **Run it locally** (needs the `shiny` and `DT` packages):
 
@@ -380,6 +399,16 @@ The reported efficiency is a **lower bound**: it compares the exact design to th
 approximate optimum, which is at least as good as any exact design, so the true
 efficiency is *at least* this value — hence the printout shows `efficiency >= …`.
 
+With a **step sequence**, the exchanges in (iii) search a *coarse* grid over the
+whole box (the coarsest step in the sequence) together with a *fine*
+neighbourhood of the approximate support at the finest step — global reach where
+it is needed, fine resolution where it matters. The finest grid is never built
+over the whole region: its size grows as the reciprocal of the final step raised
+to the number of continuous covariates, so a fine last stage would otherwise
+cost far more here than it does in the approximate solve. A single-step
+sequence is unaffected (coarse and fine coincide, and the candidate set is the
+full grid), and `candidate_set` overrides the construction entirely.
+
 Useful arguments: `max_exchange` (number of random exchanges, default `1000`),
 `seed` (reproducibility), `snap_support` (`design_box` path: snap the approximate
 support to the finest grid, default `TRUE`; or append it off-grid),
@@ -457,7 +486,7 @@ Check the toolchain: `pkgbuild::has_build_tools(debug = TRUE)` should be `TRUE`.
 
 ```r
 # from GitHub:
-remotes::install_github("USERNAME/owea")
+remotes::install_github("minyangstat-eng/owea")
 # or from a source folder / tarball:
 install.packages("/path/to/owea", repos = NULL, type = "source")
 ```
@@ -489,3 +518,125 @@ Models: A General and Efficient Algorithm. *JASA* 108(504), 1411–1420.
 Yu, Y. (2010). Monotonic convergence of a general algorithm for computing optimal
 designs. *Annals of Statistics* 38(3), 1593–1606. (The multiplicative algorithm
 behind `solver = "MA"`.)
+
+---
+
+## 16. Compound designs: one design, several objectives — `compound_design()`
+
+Everything above finds a design for **one** criterion. When you have several
+objectives at once — and especially when they come from **different models** —
+use `compound_design()`. It maximises the weighted average of the component
+**efficiencies**
+
+```
+Psi_alpha(xi) = sum_j  alpha_j * Psi_j(xi) / Psi_j*
+```
+
+where component *j* has its own model, its own quantity of interest, and its own
+type, and `Psi_j*` is the value the design optimal for component *j* **alone**
+would achieve. Each component criterion is stated *per parameter*,
+
+| type | `p` | `Psi_j` |
+|------|-----|---------|
+| D | `0` | `det(S_j^-1)^(1/v_j)` |
+| A | `1` | `v_j / tr(S_j)` |
+
+with `S_j = G_j M_j^-1 G_j'`, so components of different dimension are
+comparable and `Psi_alpha` lies in `(0, 1]` and reads directly as an average
+efficiency. The design region is shared — one experiment — but the information
+each model takes from it is not.
+
+```r
+f1 <- function(x, th) { q <- c(1, x[1], x[2]); e <- sum(q * th)
+                        (exp(e / 2) / (1 + exp(e))) * q }          # logistic
+f2 <- function(x, th) { q <- c(1, x[1], x[2], x[1] * x[2]); e <- sum(q * th)
+                        (exp(e / 2) / (1 + exp(e))) * q }          # + interaction
+
+res <- compound_design(
+  components = list(
+    list(info_vector = f1, theta = c(0.5, 1, -1),      p = 0, name = "main"),
+    list(info_vector = f2, theta = c(0.5, 1, -1, 0.5), p = 0, name = "interaction")),
+  alpha         = c(0.5, 0.5),
+  design_box    = list(c(-2, 2), c(-2, 2)),
+  step_sequence = c(0.5, 0.1))
+
+print(res)
+res$efficiency         # what each objective gets from this one design
+res$cross_efficiency   # ... and what a single-objective design would have cost
+```
+
+`print()` reports the **cross-efficiency table**, which is the point of the
+whole exercise: every design scored under every objective.
+
+```
+                              logistic main logistic + inter Poisson A(slopes)
+optimal for logistic main             1.000            0.305             0.193
+optimal for logistic + inter          0.697            1.000             0.760
+optimal for Poisson A(slopes)         0.716            0.403             1.000
+THIS DESIGN                           0.859            0.889             0.941
+```
+
+The D-optimal design for the main-effects model keeps only 19 % efficiency under
+the Poisson component; the compound design is above 85 % under all three.
+
+Components take the same model arguments as `optimal_design()` — either
+`info_vector`/`info_matrix` + `theta`, or a formula-style spec (`link`, `f`,
+`x`, `fx`, `xx`, `ff`, `ncat`, `coding`) — plus `p` (0 = D, 1 = A) and
+optionally `subset` / `grad_g` / `wb`. Existing designs (`xi0_points`, `n0`,
+`n1`) work as elsewhere; the runs are shared, the information is per model.
+
+### Exact compound designs — `compound_exact_design()`
+
+The compound counterpart of `exact_design()`: an integer allocation of `n` runs
+that serves every objective. It takes the same arguments plus `n`, computes the
+approximate compound optimum, apportions it to whole runs, and improves it by
+random exchanges — the acceptance test reversed, since `Psi_alpha` is
+*maximised*.
+
+```r
+ex <- compound_exact_design(
+  n = 60,
+  components    = list(
+    list(info_vector = f1, theta = c(0.5, 1, -1),      p = 0, name = "main"),
+    list(info_vector = f2, theta = c(0.5, 1, -1, 0.5), p = 0, name = "interaction")),
+  design_box    = list(c(-2, 2), c(-2, 2)),
+  step_sequence = c(0.5, 0.1),
+  seed = 1)
+
+ex$counts            # integer runs per support point (sum to n)
+ex$efficiency_exact  # LOWER bound, vs the approximate compound optimum
+ex$n_candidates      # how many candidate points the exchanges searched
+```
+
+The candidate set follows the same coarse-box-plus-fine-neighbourhood rule as
+`exact_design()` (§10), so a fine last stage in the `step_sequence` costs little
+here: the finest grid is never materialised over the whole region.
+
+Related functions:
+
+- `compound_criterion()` — score **any** design under the compound criterion
+  and, given a design space, get the maximum sensitivity that certifies
+  optimality. The scan visits every point of the `design_box` + `step` grid, so
+  it is capped by `max_points` (default `1e6`) exactly as
+  `verify_optimality()` is: past the cap you choose to abort, proceed anyway,
+  or take `criterion_only = TRUE` — the design is still scored, but no grid is
+  built and optimality is not assessed (`max_d` and `is_optimal` are absent).
+- `compound_sensitivity()` — a thin wrapper when the sensitivity function over
+  a candidate set is what you are after.
+- Set `efficiency = FALSE` to weight the raw `Psi_j` instead. The two give
+  different optima unless every `Psi_j*` is equal, and raw values of different
+  models are not comparable, so the default is usually what you want.
+- Supply `psi_star` to skip the reference solves. Computing `Psi_j*` costs one
+  full solve **per component** before the compound solve even starts, which
+  dominates a compound run; passing values from an earlier run with the same
+  objectives, region and existing design reuses them exactly. (The web app
+  does this for you: re-computing after changing only the weights `alpha`
+  skips them, since `Psi_j*` does not depend on `alpha`.)
+
+Fitting `theta` from a data set is the one classical-branch feature with no
+compound counterpart; use `fit_design()` and pass the estimates in as each
+component's `theta`.
+
+The theory — the compound equivalence theorem, the weight gradient and
+Hessian, and the derivation of both — is in `theory/compound-criterion.tex`
+and `theory/second-derivative-derivation.tex`.

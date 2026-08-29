@@ -462,13 +462,96 @@
   }
   ok <- which(conv)
   if (!length(ok)) stop("no simulation replicate converged.", call. = FALSE)
+  sq <- sweep(E[ok, , drop = FALSE], 2, theta, "-")^2      # squared errors
   list(estimates = E, theta = theta, coef_names = plan$coef_names,
        link = plan$link, N = nrow(X), n_new = n_new, n_existing = n_old,
        nsim = nsim, n_converged = length(ok),
        theta_hat_mean = colMeans(E[ok, , drop = FALSE]),
        bias = colMeans(E[ok, , drop = FALSE]) - theta,
-       mse  = colMeans(sweep(E[ok, , drop = FALSE], 2, theta, "-")^2),
+       mse  = colMeans(sq),
+       # The MEDIAN squared error, reported alongside the mean.  For a binary
+       # or count response a design concentrated on few distinct points can
+       # separate in the odd replicate; the fit still "converges" but the
+       # coefficients run away, and one such replicate can dominate a mean.
+       # The median says what a typical replicate achieved, so the two together
+       # show both the average cost and whether a tail is driving it.
+       medse = apply(sq, 2, stats::median),
        se_empirical = apply(E[ok, , drop = FALSE], 2, stats::sd))
+}
+
+# Share of a parameter's MSE contributed by its single worst replicate, maximised
+# over parameters.  Near 1/n_converged for a well-behaved study; close to 1 when
+# one separated replicate is carrying the mean.  Used by both branches of the app
+# to decide whether to warn about the MSE column.
+.ui_sim_dominance <- function(s) {
+  if (is.null(s) || inherits(s, "error") || is.null(s$estimates)) return(NA_real_)
+  ok <- stats::complete.cases(s$estimates)
+  if (!any(ok)) return(NA_real_)
+  sq <- sweep(s$estimates[ok, , drop = FALSE], 2, s$theta, "-")^2
+  d <- apply(sq, 2, function(z) {
+    tot <- sum(z, na.rm = TRUE)
+    if (!is.finite(tot) || tot <= 0) 0 else max(z, na.rm = TRUE) / tot
+  })
+  suppressWarnings(max(d, na.rm = TRUE))
+}
+
+# ---- the simulation comparison, as a matrix -------------------------------
+# `slots` is a NAMED list, one entry per design being compared, each a numeric
+# per-parameter error vector (mse or medse) or NULL -- a design that was not
+# run, or one that failed.  Both branches of the app compare the same way, so
+# both build their table and their ratio columns from this one matrix and
+# cannot disagree about what was compared.
+#
+# Returns a designs x parameters matrix, or NULL when nothing comparable is
+# left.
+.ui_sim_matrix <- function(slots, param_names = NULL) {
+  if (!length(slots)) return(NULL)
+  nms <- names(slots)
+  if (is.null(nms)) nms <- paste("design", seq_along(slots))
+  keep <- list(); labs <- character(0); k <- NULL
+  for (i in seq_along(slots)) {
+    v <- slots[[i]]
+    if (is.null(v) || inherits(v, "error") || !length(v)) next
+    v <- as.numeric(v)
+    if (!any(is.finite(v))) next                 # a design that produced nothing
+    if (is.null(k)) k <- length(v) else if (length(v) != k) next
+    v[!is.finite(v)] <- NA_real_                 # an unusable parameter only
+    keep[[length(keep) + 1L]] <- v
+    labs <- c(labs, nms[i])
+    if (is.null(param_names) && !is.null(names(slots[[i]])))
+      param_names <- names(slots[[i]])
+  }
+  if (!length(keep)) return(NULL)
+  M <- do.call(rbind, keep)
+  if (is.null(param_names) || length(param_names) != k)
+    param_names <- paste0("theta", seq_len(k))
+  dimnames(M) <- list(labs, param_names)
+  M
+}
+
+# ---- the same comparison, as ratios against one reference design ----------
+# Row-wise M[i, ] / M[reference, ], for every row but the reference: how many
+# times the competing design's error is that of the design the app computed.
+# Above 1 the computed design has the smaller error for that parameter; below
+# 1 the competitor does.  A ratio is the only honest way to read this table --
+# the MSEs themselves live on whatever scale the parameter happens to have.
+#
+# `reference` is a design NAME, not a position, because .ui_sim_matrix() drops
+# the designs that were not run: with only SRS in hand the first row would be
+# SRS, and dividing it by itself would silently report 1.
+#
+# Returns a (designs - 1) x parameters matrix, or NULL when there is nothing
+# to compare (the reference absent, or no other design run).
+.ui_sim_ratio <- function(M, reference) {
+  if (is.null(M) || !is.matrix(M) || nrow(M) < 2L) return(NULL)
+  i <- match(reference, rownames(M))
+  if (is.na(i)) return(NULL)
+  ref <- M[i, ]
+  ref[!is.finite(ref) | ref <= 0] <- NA_real_    # no ratio against a zero MSE
+  R <- M[-i, , drop = FALSE]
+  R <- sweep(R, 2, ref, "/")
+  R[!is.finite(R)] <- NA_real_
+  R
 }
 
 # ---- efficiency of a derived design under a DIFFERENT criterion ------------

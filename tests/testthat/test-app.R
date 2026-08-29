@@ -413,3 +413,131 @@ test_that("plot_design runs for 1, 2 and 3 covariates without error", {
   expect_silent(plot_design(r1))
   grDevices::dev.off()
 })
+
+# ---- robust simulation summaries (both branches of the app use these) ------
+
+test_that(".ui_simulate reports a median squared error beside the mean", {
+  sp <- owea:::.ui_model_spec(
+    list(list(name = "dose", type = "continuous", lo = -1, hi = 1, steps = 0.5)),
+    link = "logit")
+  s <- owea:::.ui_simulate(sp, theta = c(0.5, 1),
+                           support = cbind(c(-1, 0, 1)), counts = c(20, 20, 20),
+                           nsim = 100L, seed = 4)
+  expect_length(s$medse, length(s$mse))
+  expect_equal(names(s$medse), names(s$mse))
+  expect_true(all(s$medse >= 0))
+  # the median squared error can never exceed the mean by much, and for a
+  # right-skewed error distribution it sits below it
+  expect_true(all(s$medse <= s$mse * 1.5 + 1e-8))
+})
+
+test_that(".ui_sim_dominance detects an MSE carried by one replicate", {
+  sp <- owea:::.ui_model_spec(
+    list(list(name = "dose", type = "continuous", lo = -1, hi = 1, steps = 0.5)),
+    link = "logit")
+  s <- owea:::.ui_simulate(sp, theta = c(0.5, 1),
+                           support = cbind(c(-1, 0, 1)), counts = c(20, 20, 20),
+                           nsim = 100L, seed = 4)
+  d <- owea:::.ui_sim_dominance(s)
+  expect_true(is.finite(d))
+  expect_gte(d, 1 / s$n_converged)          # at least an equal share
+  expect_lte(d, 1)
+
+  # plant one wild replicate and the share must jump
+  s2 <- s
+  s2$estimates[1, ] <- s2$estimates[1, ] + 500
+  expect_gt(owea:::.ui_sim_dominance(s2), 0.9)
+  expect_gt(owea:::.ui_sim_dominance(s2), d)
+
+  # and it is well behaved on rubbish input
+  expect_true(is.na(owea:::.ui_sim_dominance(NULL)))
+  expect_true(is.na(owea:::.ui_sim_dominance(simpleError("nope"))))
+})
+
+test_that("the median squared error resists a wild replicate, the mean does not", {
+  sp <- owea:::.ui_model_spec(
+    list(list(name = "dose", type = "continuous", lo = -1, hi = 1, steps = 0.5)),
+    link = "logit")
+  s <- owea:::.ui_simulate(sp, theta = c(0.5, 1),
+                           support = cbind(c(-1, 0, 1)), counts = c(20, 20, 20),
+                           nsim = 100L, seed = 4)
+  ok <- stats::complete.cases(s$estimates)
+  E  <- s$estimates[ok, , drop = FALSE]
+  E2 <- E; E2[1, ] <- E2[1, ] + 500                    # one separated fit
+  sq  <- sweep(E,  2, s$theta, "-")^2
+  sq2 <- sweep(E2, 2, s$theta, "-")^2
+  expect_gt(mean(sq2[, 1]), 100 * mean(sq[, 1]))       # the mean explodes
+  expect_equal(stats::median(sq2[, 1]), stats::median(sq[, 1]),
+               tolerance = 1e-8)                        # the median does not
+})
+
+test_that(".ui_sim_matrix lays the compared designs out one row each", {
+  slots <- list(`Exact design` = c(a = 1, b = 2), SRS = c(a = 3, b = 4))
+  M <- owea:::.ui_sim_matrix(slots)
+  expect_true(is.matrix(M))
+  expect_equal(dim(M), c(2L, 2L))                       # designs x parameters
+  expect_equal(rownames(M), c("Exact design", "SRS"))
+  expect_equal(colnames(M), c("a", "b"))                # names come from the vectors
+  expect_equal(M["SRS", "b"], 4)
+
+  # a design that was not run, or that failed, simply drops out
+  M2 <- owea:::.ui_sim_matrix(list(`Exact design` = c(a = 1, b = 2), SRS = NULL,
+                                   Custom = simpleError("nope")))
+  expect_equal(rownames(M2), "Exact design")
+
+  # explicit parameter names win over the vectors' own
+  M3 <- owea:::.ui_sim_matrix(list(D = c(1, 2)), param_names = c("b0", "b1"))
+  expect_equal(colnames(M3), c("b0", "b1"))
+
+  # nothing comparable -> NULL, so the app can req() on it
+  expect_null(owea:::.ui_sim_matrix(list()))
+  expect_null(owea:::.ui_sim_matrix(list(A = NULL, B = NULL)))
+  expect_null(owea:::.ui_sim_matrix(list(A = c(NA_real_, NaN))))
+
+  # a design of a different length cannot share the groups, so it is dropped;
+  # a single non-finite entry only loses its own bar
+  M4 <- owea:::.ui_sim_matrix(list(A = c(a = 1, b = 2), B = c(a = 1, b = 2, c = 3),
+                                   C = c(a = Inf, b = 5)))
+  expect_equal(rownames(M4), c("A", "C"))
+  expect_true(is.na(M4["C", "a"]))
+  expect_equal(M4["C", "b"], 5)
+})
+
+test_that(".ui_sim_ratio divides every design by the reference one", {
+  M <- owea:::.ui_sim_matrix(list(`Exact design` = c(b0 = 1, b1 = 2),
+                                  SRS = c(b0 = 3, b1 = 4),
+                                  Custom = c(b0 = 2, b1 = 1)))
+  R <- owea:::.ui_sim_ratio(M, "Exact design")
+  expect_equal(rownames(R), c("SRS", "Custom"))   # the reference itself is gone
+  expect_equal(colnames(R), c("b0", "b1"))
+  expect_equal(R["SRS", ], c(b0 = 3, b1 = 2))     # competitor / computed
+  expect_equal(R["Custom", ], c(b0 = 2, b1 = 0.5))
+
+  # the reference is found by NAME, not position: with the computed design not
+  # run, its row is missing and no ratio can be formed
+  M2 <- owea:::.ui_sim_matrix(list(SRS = c(b0 = 3, b1 = 4),
+                                   Custom = c(b0 = 2, b1 = 1)))
+  expect_null(owea:::.ui_sim_ratio(M2, "Exact design"))
+
+  # nothing to compare against
+  expect_null(owea:::.ui_sim_ratio(
+    owea:::.ui_sim_matrix(list(`Exact design` = c(b0 = 1))), "Exact design"))
+  expect_null(owea:::.ui_sim_ratio(NULL, "Exact design"))
+})
+
+test_that(".ui_sim_ratio reports NA rather than Inf for an unusable reference", {
+  # a zero or missing reference MSE has no meaningful ratio
+  M <- rbind(`Exact design` = c(b0 = 0, b1 = NA_real_, b2 = 2),
+             SRS           = c(b0 = 1, b1 = 3,         b2 = 4))
+  R <- owea:::.ui_sim_ratio(M, "Exact design")
+  expect_true(is.na(R["SRS", "b0"]))              # not Inf
+  expect_true(is.na(R["SRS", "b1"]))
+  expect_equal(R["SRS", "b2"], 2)                 # the usable column still works
+
+  # a competitor's own missing value only costs that one entry
+  M2 <- rbind(`Exact design` = c(b0 = 1, b1 = 2),
+              SRS            = c(b0 = NA_real_, b1 = 4))
+  R2 <- owea:::.ui_sim_ratio(M2, "Exact design")
+  expect_true(is.na(R2["SRS", "b0"]))
+  expect_equal(R2["SRS", "b1"], 2)
+})

@@ -63,10 +63,23 @@ For \code{nsim = 1}: a list with \code{data} (the simulated runs and
   with \code{estimates} (\code{nsim} \eqn{\times} k), \code{theta_hat_mean},
   \code{bias}, \code{mse} (per-parameter mean squared error
   \eqn{\mathrm{E}[(\hat\theta-\theta)^2]} over the converged replicates,
-  \eqn{= \mathrm{bias}^2 + \mathrm{variance}}), \code{cov_empirical},
+  \eqn{= \mathrm{bias}^2 + \mathrm{variance}}), \code{medse} (the
+  per-parameter MEDIAN squared error over the same replicates),
+  \code{cov_empirical},
   \code{cov_design} (\eqn{M(\xi,\theta)^{-1}/N}, times \eqn{\sigma^2} for
   identity), \code{se_empirical}, \code{se_design} and \code{n_converged}. Both carry
   \code{theta}, \code{coef_names}, \code{link} and \code{N}.
+}
+\section{Reading \code{mse} and \code{medse} together}{
+
+For a binary or count response a design concentrated on few distinct points
+can, in a given replicate, leave the response perfectly predicted. The fit
+still reports convergence, but the coefficients run away, and a single such
+replicate can dominate a mean squared error --- so a design that is better on
+average may appear far worse. \code{medse} is unaffected by a handful of such
+replicates, and a large gap between \code{mse} and \code{medse} is itself the
+diagnostic. Compare both, and compare them against \code{cov_design}, which is
+the large-sample expectation.
 }
 \description{
 Given a design (support points and integer run \code{counts}), a formula-style
