@@ -140,3 +140,45 @@ test_that("solver = 'MA' handles c-optimality (rank-1 wb) gracefully", {
   expect_true(is.finite(r_ma$criterion))
   expect_true(nrow(as.matrix(r_ma$support)) >= 1L)
 })
+
+test_that("total_time is the whole call, times is the solver only", {
+  # A grid big enough that building it costs more than solving on it: the two
+  # numbers must then differ, and total_time must be the larger.
+  f <- function(x, th) { q <- c(1, x[1], x[2], x[3]); e <- sum(q * th)
+                         (exp(e / 2) / (1 + exp(e))) * q }
+  th  <- c(0.2, 0.8, -0.6, 0.5)
+  box <- list(x1 = c(-1, 1), x2 = c(-1, 1), x3 = c(-1, 1))
+
+  wall <- system.time(
+    r <- suppressWarnings(optimal_design(info_vector = f, theta = th, p = 0,
+                                         design_box = box,
+                                         step_sequence = 0.02)))[3]
+  expect_true(is.finite(r$total_time))
+  # it tracks the call's wall clock, not the solver alone
+  expect_lte(r$total_time, wall + 0.05)
+  expect_gte(r$total_time, sum(r$times))
+  # and on this grid the untimed work (grid build, model evaluation) is real
+  expect_gt(r$total_time, sum(r$times))
+
+  # the per-stage vector is untouched: one entry per stage of the sequence
+  m <- suppressWarnings(optimal_design(info_vector = f, theta = th, p = 0,
+                                       design_box = box,
+                                       step_sequence = c(0.5, 0.2, 0.05)))
+  expect_length(m$times, 3L)
+  expect_length(m$grid_sizes, 3L)
+  expect_gte(m$total_time, sum(m$times))
+
+  # check_global's verification is inside the call, so it counts too
+  g <- suppressWarnings(optimal_design(info_vector = f, theta = th, p = 0,
+                                       design_box = box,
+                                       step_sequence = c(0.5, 0.2, 0.05),
+                                       check_global = TRUE))
+  expect_gte(g$total_time, sum(g$times))
+
+  # the candidate_set path reports a whole-call time as well
+  Xg <- candidate_grid(box, 0.1)
+  s <- suppressWarnings(optimal_design(info_vector = f, theta = th, p = 0,
+                                       candidate_set = Xg))
+  expect_true(is.finite(s$total_time))
+  expect_gte(s$total_time, sum(s$times))
+})

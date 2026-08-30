@@ -226,8 +226,15 @@ owea <- function(prob, eps0 = 1e-6, max_outer = 2000L, verbose = FALSE,
 #'   \code{max_d}, \code{information} (the resulting per-observation information
 #'   matrix \eqn{M(\xi,\theta)}; when an existing design is supplied this is the
 #'   COMBINED matrix \eqn{a\,I_{\xi_0} + b\,M(\xi)} with \eqn{a = n_0/(n_0+n_1)},
-#'   \eqn{b = n_1/(n_0+n_1)}), \code{converged}, \code{times}, \code{grid_sizes},
-#'   \code{total_time}, \code{box_lo}, \code{box_hi}, \code{p}, and
+#'   \eqn{b = n_1/(n_0+n_1)}), \code{converged}, \code{times} (elapsed seconds
+#'   in the solver itself, one entry per stage --- including any stage whose
+#'   refinement was computed and then rejected), \code{grid_sizes},
+#'   \code{total_time} (elapsed seconds for the WHOLE call, as
+#'   \code{\link{exact_design}} and \code{compound_design} also report it: grid
+#'   construction, the model evaluation over it and any \code{check_global}
+#'   verification included, so it exceeds \code{sum(times)} --- several-fold on
+#'   a large grid, where building the candidate set dominates the solve),
+#'   \code{box_lo}, \code{box_hi}, \code{p}, and
 #'   \code{global_max_d} / \code{global_check} (the whole-box equivalence-theorem
 #'   maximum and whether it is \eqn{\le} \code{eps0}; \code{NA} when not checked).
 #'   For the multistage (\code{design_box}) path a \code{converged} design is
@@ -251,6 +258,12 @@ optimal_design <- function(design_box = NULL, step_sequence = NULL,
                            global_max_points = 1e6,
                            max_iter = 100L, eps0 = 1e-6,
                            accept_tol = 1e-9, verbose = FALSE) {
+  # Wall clock for the WHOLE call, as exact_design() and compound_design() also
+  # report it: the grid construction, the model evaluation over it and any
+  # check_global verification are part of what the call costs, and timing only
+  # the solver understated a large-grid run several-fold.  The per-stage solver
+  # times stay in `times`.
+  t_start <- proc.time()[3]
   p <- .check_criterion(p)
 
   # a formula-style model spec ('link' + f/x/fx/ff/xx) is a third way to specify
@@ -514,7 +527,7 @@ optimal_design <- function(design_box = NULL, step_sequence = NULL,
                 criterion = cand$criterion, max_d = cand$max_d,
                 information = info_out,
                 converged = cand$converged, times = ttot,
-                grid_sizes = nrow(X), total_time = ttot,
+                grid_sizes = nrow(X), total_time = NA_real_,  # stamped below
                 box_lo = apply(X, 2, min), box_hi = apply(X, 2, max), p = p,
                 is_factor = is_factor, theta = theta,
                 coef_names = coef_names, link = model_link,
@@ -523,6 +536,7 @@ optimal_design <- function(design_box = NULL, step_sequence = NULL,
     if (!cand$converged)
       warning(sprintf("optimal_design(): the returned design did NOT converge (max_d = %.3e > eps0 = %g); it is not optimal. Increase max_iter, coarsen the grid, or supply a warm start.",
                       cand$max_d, eps0), call. = FALSE)
+    out$total_time <- proc.time()[3] - t_start
     return(out)
   }
 
@@ -563,7 +577,7 @@ optimal_design <- function(design_box = NULL, step_sequence = NULL,
               criterion = res$criterion, max_d = res$max_d,
               information = info_out,
               converged = res$converged, times = res$times,
-              grid_sizes = res$grid_sizes, total_time = sum(res$times),
+              grid_sizes = res$grid_sizes, total_time = NA_real_,  # stamped below
               box_lo = box_lo, box_hi = box_hi, p = p,
               is_factor = is_factor, theta = theta,
               coef_names = coef_names, link = model_link,
@@ -610,6 +624,8 @@ optimal_design <- function(design_box = NULL, step_sequence = NULL,
     warning(sprintf("optimal_design(): the returned design did NOT converge (max_d = %.3e > eps0 = %g); it is not optimal. Increase max_iter or adjust the step_sequence.",
                     res$max_d, eps0), call. = FALSE)
   }
+  # stamped last, so the check_global verification above is counted too
+  out$total_time <- proc.time()[3] - t_start
   out
 }
 

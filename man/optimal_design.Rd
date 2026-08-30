@@ -201,8 +201,15 @@ list with \code{support}, \code{weights}, \code{criterion},
   \code{max_d}, \code{information} (the resulting per-observation information
   matrix \eqn{M(\xi,\theta)}; when an existing design is supplied this is the
   COMBINED matrix \eqn{a\,I_{\xi_0} + b\,M(\xi)} with \eqn{a = n_0/(n_0+n_1)},
-  \eqn{b = n_1/(n_0+n_1)}), \code{converged}, \code{times}, \code{grid_sizes},
-  \code{total_time}, \code{box_lo}, \code{box_hi}, \code{p}, and
+  \eqn{b = n_1/(n_0+n_1)}), \code{converged}, \code{times} (elapsed seconds in
+  the solver itself, one entry per stage --- including any stage whose
+  refinement was computed and then rejected), \code{grid_sizes},
+  \code{total_time} (elapsed seconds for the WHOLE call, as
+  \code{\link{exact_design}} and \code{compound_design} also report it: grid
+  construction, the model evaluation over it and any \code{check_global}
+  verification included, so it exceeds \code{sum(times)} --- several-fold on a
+  large grid, where building the candidate set dominates the solve),
+  \code{box_lo}, \code{box_hi}, \code{p}, and
   \code{global_max_d} / \code{global_check} (the whole-box equivalence-theorem
   maximum and whether it is \eqn{\le} \code{eps0}; \code{NA} when not checked).
   For the multistage (\code{design_box}) path a \code{converged} design is
