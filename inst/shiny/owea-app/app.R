@@ -1915,11 +1915,15 @@ server <- function(input, output, session) {
     c2 <- cmp_computed(); req(is.null(c2$error))
     div(class = "alert alert-info",
         tags$b("What each objective got."),
-        " Psi is the objective's own criterion value at this design",
+        " 'criterion' is the objective's own criterion value at this design, ",
+        "computed exactly as the single-criterion Design tab reports it ",
+        "(D: log det of the covariance / number of parameters; A: trace / number ",
+        "of parameters; smaller is better)",
         if (isTRUE(c2$res$efficiency_weighted))
-          tags$span("; Psi_star is the best it could have achieved on its own, ",
-                    "so efficiency = Psi / Psi_star is the fraction of that best ",
-                    "this one design delivers.")
+          tags$span("; 'optimal' is the best value that objective could achieve ",
+                    "on its own, and 'efficiency' is the fraction of that best this ",
+                    "one design delivers (D: exp(optimal - criterion); A: optimal / ",
+                    "criterion).")
         else tags$span("."))
   })
   output$cmp_summary_tbl <- renderTable({

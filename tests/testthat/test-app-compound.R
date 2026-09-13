@@ -152,9 +152,13 @@ test_that("the results tables have the shape the app renders", {
                                         alpha = c(.4, .35, .25)))
   s <- owea:::.uic_summary_table(r)
   expect_equal(rownames(s), c("m1", "m2", "m3"))
-  expect_true(all(c("alpha", "criterion", "Psi", "Psi_star", "efficiency")
+  # per-component values on the optimal_design() scale (0.4.0), not Psi
+  expect_true(all(c("alpha", "type", "criterion", "optimal", "efficiency")
                   %in% names(s)))
-  expect_equal(s$criterion, c("D", "D", "A"))
+  expect_equal(s$type, c("D", "D", "A"))
+  expect_equal(s$criterion, signif(as.numeric(r$component_criterion), 7))
+  expect_equal(s$optimal,   signif(as.numeric(r$component_criterion_star), 7))
+  expect_true(all(s$criterion >= s$optimal - 1e-8))   # smaller is better
 
   ct <- owea:::.uic_cross_table(r)
   expect_equal(dim(ct), c(4L, 3L))

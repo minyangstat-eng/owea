@@ -49,7 +49,10 @@
 #'   (\code{counts / n}), \code{criterion} (the compound value of the exact
 #'   design), \code{criterion_approx} (the approximate optimum it is measured
 #'   against), \code{efficiency_exact} (their ratio, in \eqn{(0,1]}),
-#'   \code{psi}, \code{psi_star}, \code{efficiency} (per component),
+#'   \code{psi}, \code{psi_star}, \code{component_criterion} and
+#'   \code{component_criterion_star} (the per-component values on the scale
+#'   \code{\link{optimal_design}} reports, see \code{\link{compound_design}}),
+#'   \code{efficiency} (per component),
 #'   \code{cross_efficiency}, \code{alpha}, \code{at}, \code{information},
 #'   \code{n}, \code{exchanges}, \code{n_candidates} (the size of the candidate
 #'   set the exchanges searched) and \code{approx} (the full approximate
@@ -284,6 +287,9 @@ compound_exact_design <- function(n, components, alpha = NULL,
               efficiency_exact = crit_exact / ap$criterion,
               psi = stats::setNames(as.numeric(psi), nms),
               psi_star = ap$psi_star,
+              # the same values on the scale optimal_design() reports
+              component_criterion      = stats::setNames(.cmp_single_scale(psi, ap$p), nms),
+              component_criterion_star = stats::setNames(.cmp_single_scale(ap$psi_star, ap$p), nms),
               efficiency = stats::setNames(as.numeric(eff), nms),
               cross_efficiency = cross,
               alpha = ap$alpha, at = ap$at,
@@ -313,13 +319,14 @@ print.compound_exact_design <- function(x, ...) {
   cat(sprintf("  efficiency : >= %.2f%% of the approximate optimum (%.8f)\n",
               100 * x$efficiency_exact, x$criterion_approx))
   cat(sprintf("  exchanges  : %d accepted\n", x$exchanges))
-  cat("\n")
+  cat("\n  per-component criterion values, on the scale optimal_design() reports",
+      "\n  (D: log det Sigma / v;  A: tr(Sigma) / v;  smaller is better)\n")
   tab <- data.frame(alpha = round(as.numeric(x$alpha), 4),
-                    criterion = ifelse(x$p == 0, "D", "A"),
-                    Psi = signif(as.numeric(x$psi), 7),
+                    p = ifelse(x$p == 0, "D", "A"),
+                    criterion = signif(as.numeric(x$component_criterion), 7),
                     stringsAsFactors = FALSE)
   if (isTRUE(x$efficiency_weighted)) {
-    tab$Psi_star   <- signif(as.numeric(x$psi_star), 7)
+    tab$optimal    <- signif(as.numeric(x$component_criterion_star), 7)
     tab$efficiency <- round(as.numeric(x$efficiency), 6)
   }
   rownames(tab) <- names(x$psi)

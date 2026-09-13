@@ -67,6 +67,11 @@ A list of class \code{"compound_design"} with \code{support}, \code{weights},
 \code{criterion} (the compound value \eqn{\Psi_\alpha}), \code{max_d} (maximum
 compound sensitivity; \eqn{\le} \code{eps0} certifies optimality),
 \code{converged}, \code{psi} (per-component \eqn{\Psi_j}), \code{psi_star},
+\code{component_criterion} and \code{component_criterion_star} (the
+per-component values of this design and of each component's own optimum on
+the scale \code{\link{optimal_design}} reports: \eqn{\log\det \Sigma_j / v_j}
+for D, \eqn{\mathrm{tr}\,\Sigma_j / v_j} for A, i.e. \eqn{-\log\Psi_j} and
+\eqn{1/\Psi_j}; smaller is better),
 \code{efficiency} (per-component \eqn{\Psi_j/\Psi_j^{*}}), \code{alpha},
 \code{at} (the weights actually used), \code{cross_efficiency},
 \code{reference_designs}, \code{information} (a list of the per-component

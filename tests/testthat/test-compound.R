@@ -468,3 +468,30 @@ test_that("criterion_only scores a design without building any grid", {
                        design_box = box, step = 0.25, criterion_only = TRUE),
     "criterion_only")
 })
+
+test_that("per-component criterion values are reported on the optimal_design() scale", {
+  al <- c(0.4, 0.35, 0.25)
+  r  <- compound_design(cmp3, alpha = al, candidate_set = Xg)
+  # D components: -log(Psi); A component: 1 / Psi
+  expect_equal(unname(r$component_criterion[1:2]), unname(-log(r$psi[1:2])))
+  expect_equal(unname(r$component_criterion[3]),   unname(1 / r$psi[3]))
+  # the reference values are what optimal_design() reports for each component alone
+  o1 <- suppressWarnings(optimal_design(info_vector = f1, theta = th1,
+                                        candidate_set = Xg, p = 0))
+  o3 <- suppressWarnings(optimal_design(info_vector = f3, theta = th3,
+                                        candidate_set = Xg, p = 1, subset = c(2, 3)))
+  expect_equal(unname(r$component_criterion_star[1]), o1$criterion, tolerance = 1e-5)
+  expect_equal(unname(r$component_criterion_star[3]), o3$criterion, tolerance = 1e-5)
+  # compound_criterion() reports the same values for the same design
+  cc <- compound_criterion(r$support, r$weights, cmp3, alpha = al,
+                           psi_star = r$psi_star, candidate_set = Xg)
+  expect_equal(unname(cc$component_criterion), unname(r$component_criterion),
+               tolerance = 1e-8)
+  # the efficiencies are unchanged by the change of scale
+  expect_equal(unname(r$efficiency[1]),
+               exp(r$component_criterion_star[[1]] - r$component_criterion[[1]]),
+               tolerance = 1e-10)
+  expect_equal(unname(r$efficiency[3]),
+               r$component_criterion_star[[3]] / r$component_criterion[[3]],
+               tolerance = 1e-10)
+})

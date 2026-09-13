@@ -49,7 +49,10 @@ A list of class \code{"compound_exact_design"} with \code{support},
 \code{counts} (integers summing to \code{n}), \code{weights}
 (\code{counts / n}), \code{criterion}, \code{criterion_approx},
 \code{efficiency_exact} (their ratio, in \eqn{(0,1]}), \code{psi},
-\code{psi_star}, \code{efficiency}, \code{cross_efficiency}, \code{alpha},
+\code{psi_star}, \code{component_criterion} and
+\code{component_criterion_star} (the per-component values on the scale
+\code{\link{optimal_design}} reports, see \code{\link{compound_design}}),
+\code{efficiency}, \code{cross_efficiency}, \code{alpha},
 \code{at}, \code{information}, \code{n}, \code{exchanges},
 \code{n_candidates} (the size of the candidate set the exchanges searched)
 and \code{approx} (the full approximate result).

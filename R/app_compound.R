@@ -219,12 +219,15 @@
 # The per-component summary table shown on the results step (and the same
 # information print.compound_design() puts on the console).
 .uic_summary_table <- function(res) {
+  # criterion values on the scale the single-criterion tab reports
+  # (D: log det Sigma / v, A: tr(Sigma) / v; smaller is better), so the two
+  # tabs agree number for number.  Psi itself stays in the result object.
   d <- data.frame(alpha = round(as.numeric(res$alpha), 4),
-                  criterion = ifelse(res$p == 0, "D", "A"),
-                  Psi = signif(as.numeric(res$psi), 7),
+                  type = ifelse(res$p == 0, "D", "A"),
+                  criterion = signif(as.numeric(res$component_criterion), 7),
                   stringsAsFactors = FALSE)
   if (isTRUE(res$efficiency_weighted)) {
-    d$Psi_star   <- signif(as.numeric(res$psi_star), 7)
+    d$optimal    <- signif(as.numeric(res$component_criterion_star), 7)
     d$efficiency <- round(as.numeric(res$efficiency), 6)
   }
   rownames(d) <- names(res$psi)

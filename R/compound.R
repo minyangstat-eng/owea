@@ -296,6 +296,19 @@
        converged = isTRUE(r$converged), max_d = r$max_d)
 }
 
+# ---- per-component criterion on the single-criterion scale ---------------
+# The compound criterion is OPTIMISED through Psi_j (see the header), but the
+# per-component values are REPORTED on the scale optimal_design() uses, so the
+# two entry points agree number for number:
+#     D (p = 0):  log det(S_j) / v_j  = -log(Psi_j)
+#     A (p = 1):  tr(S_j) / v_j       =  1 / Psi_j
+# (smaller is better on this scale).  The efficiencies are unchanged:
+# exp(crit* - crit) for D and crit* / crit for A both equal Psi_j / Psi_j*.
+.cmp_single_scale <- function(psi, p) {
+  psi <- as.numeric(psi); p <- as.numeric(p)
+  ifelse(p == 0, -log(psi), 1 / psi)
+}
+
 #' Compound (multi-criterion, multi-model) optimal design.
 #'
 #' Finds one approximate design that is good simultaneously for several
@@ -373,6 +386,11 @@
 #'   compound value \eqn{\Psi_\alpha}), \code{max_d} (maximum compound
 #'   sensitivity; \eqn{\le} \code{eps0} certifies optimality), \code{converged},
 #'   \code{psi} (per-component \eqn{\Psi_j}), \code{psi_star},
+#'   \code{component_criterion} and \code{component_criterion_star} (the
+#'   per-component values of this design and of each component's own optimum
+#'   on the scale \code{\link{optimal_design}} reports: \eqn{\log\det
+#'   \Sigma_j / v_j} for D, \eqn{\mathrm{tr}\,\Sigma_j / v_j} for A, i.e.
+#'   \eqn{-\log\Psi_j} and \eqn{1/\Psi_j}; smaller is better),
 #'   \code{efficiency} (per-component \eqn{\Psi_j/\Psi_j^{*}}), \code{alpha},
 #'   \code{at} (the weights actually used), \code{information} (a list of the
 #'   per-component information matrices \eqn{M_j}), \code{iterations},
@@ -548,11 +566,15 @@ compound_design <- function(components, alpha = NULL,
     dimnames(cross) <- list(c(paste("optimal for", nms), "THIS DESIGN"), nms)
   }
 
+  pvec <- vapply(comps, function(cc) cc$p, numeric(1))
   out <- list(support = res$support, weights = res$weights,
               criterion = res$value, max_d = res$sensitivity,
               converged = isTRUE(res$converged),
               psi = stats::setNames(res$psi, nms),
               psi_star = stats::setNames(psi_star, nms),
+              # the same values on the scale optimal_design() reports
+              component_criterion      = stats::setNames(.cmp_single_scale(res$psi, pvec), nms),
+              component_criterion_star = stats::setNames(.cmp_single_scale(psi_star, pvec), nms),
               efficiency = stats::setNames(eff, nms),
               alpha = stats::setNames(alpha, nms),
               at = stats::setNames(at, nms),
@@ -631,7 +653,10 @@ compound_design <- function(components, alpha = NULL,
 #'   design space the reference values cannot be computed.
 #' @param ... ignored.
 #' @return a list with \code{criterion} (\eqn{\Psi_\alpha}), \code{psi}
-#'   (per-component \eqn{\Psi_j}), \code{efficiency}, \code{psi_star},
+#'   (per-component \eqn{\Psi_j}), \code{component_criterion} and
+#'   \code{component_criterion_star} (the same values on the scale
+#'   \code{\link{optimal_design}} reports, see \code{\link{compound_design}}),
+#'   \code{efficiency}, \code{psi_star},
 #'   \code{alpha}, \code{at}, \code{information} (per-component \eqn{M_j}) and,
 #'   when a design space was supplied, \code{sensitivity} (one value per
 #'   candidate), \code{max_d}, \code{maximiser}, \code{is_optimal} and
@@ -778,8 +803,12 @@ compound_criterion <- function(support, weights = NULL, components,
     M
   })
 
+  pvec <- vapply(comps, function(cc) cc$p, numeric(1))
   out <- list(criterion = ev$criterion,
               psi = stats::setNames(ev$psi, nms),
+              # the same values on the scale optimal_design() reports
+              component_criterion      = stats::setNames(.cmp_single_scale(ev$psi, pvec), nms),
+              component_criterion_star = stats::setNames(.cmp_single_scale(psi_star, pvec), nms),
               efficiency = stats::setNames(
                 if (isTRUE(efficiency)) ev$psi / psi_star else rep(NA_real_, J),
                 nms),
@@ -845,12 +874,13 @@ print.compound_design <- function(x, ...) {
                 "   (weighted average efficiency, in (0,1])" else ""))
   cat(sprintf("  max_d      : %.3e   %s\n", x$max_d,
               if (isTRUE(x$converged)) "(optimal)" else "(NOT converged)"))
-  cat("\n")
+  cat("\n  per-component criterion values, on the scale optimal_design() reports",
+      "\n  (D: log det Sigma / v;  A: tr(Sigma) / v;  smaller is better)\n")
   tab <- data.frame(alpha = round(x$alpha, 4),
                     p = ifelse(x$p == 0, "D", "A"),
-                    Psi = signif(x$psi, 7))
+                    criterion = signif(x$component_criterion, 7))
   if (isTRUE(x$efficiency_weighted)) {
-    tab$Psi_star   <- signif(x$psi_star, 7)
+    tab$optimal    <- signif(x$component_criterion_star, 7)
     tab$efficiency <- round(x$efficiency, 6)
   }
   print(tab)

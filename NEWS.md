@@ -36,6 +36,14 @@
   cross-checked against `optimal_design()` for that component, keeping the
   better design. `compound_design()` also warns explicitly when an efficiency
   exceeds 1.
+* Reporting, `compound_design()` / `compound_criterion()` /
+  `compound_exact_design()`: the per-component criterion values are now also
+  returned on the scale `optimal_design()` reports (`component_criterion`,
+  `component_criterion_star`: log det Sigma / v for D, tr(Sigma) / v for A,
+  i.e. -log(Psi) and 1/Psi), and the print methods and the app's summary table
+  show these instead of Psi, so the single-criterion and compound results agree
+  number for number. The compound criterion itself, its optimisation and the
+  efficiencies are unchanged; `psi` and `psi_star` remain in the results.
 
 # owea 0.3.0
 

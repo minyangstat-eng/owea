@@ -64,7 +64,10 @@ reference values cannot be computed.}
 }
 \value{
 A list with \code{criterion} (\eqn{\Psi_\alpha}), \code{psi} (per-component
-\eqn{\Psi_j}), \code{efficiency}, \code{psi_star}, \code{alpha}, \code{at},
+\eqn{\Psi_j}), \code{component_criterion} and \code{component_criterion_star}
+(the same values on the scale \code{\link{optimal_design}} reports, see
+\code{\link{compound_design}}), \code{efficiency}, \code{psi_star},
+\code{alpha}, \code{at},
 \code{information} (per-component \eqn{M_j}) and, when a design space was
 supplied, \code{sensitivity}, \code{max_d}, \code{maximiser},
 \code{is_optimal} and \code{euler}.
