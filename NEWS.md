@@ -44,6 +44,10 @@
   show these instead of Psi, so the single-criterion and compound results agree
   number for number. The compound criterion itself, its optimisation and the
   efficiencies are unchanged; `psi` and `psi_star` remain in the results.
+* App: when an exact design is chosen (single-criterion and compound flows), the
+  design step now shows a note that the results page offers a simulation study
+  for exact designs, so users know the design can be checked by simulating
+  responses and re-estimating the parameters.
 
 # owea 0.3.0
 
