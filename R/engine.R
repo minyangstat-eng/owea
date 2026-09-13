@@ -10,7 +10,7 @@
 .solve_engine <- function(pp, wb, info_mode, info_data, infor0,
                           init_idx = integer(0),
                           max_iter = 100L, tol = 1e-6, verbose = FALSE,
-                          min_support = NULL) {
+                          min_support = NULL, engine_mode = 0L, add_per_iter = 1L) {
   infor0 <- as.matrix(infor0)
   k <- if (info_mode == 0L) nrow(as.matrix(info_data))
        else as.integer(round(sqrt(nrow(as.matrix(info_data)))))
@@ -18,10 +18,13 @@
   # per-point rank pass min_support explicitly (see .min_support_rule()).
   if (is.null(min_support))
     min_support <- .min_support_rule(infor0, k, as.matrix(wb), 1L)
+  # engine_mode 0 = original engine; 1 = active-set Newton step control, batch
+  # pruning and add_per_iter candidate additions per exchange iteration.
   appro_opt_cpp(as.integer(pp), as.matrix(wb), as.integer(info_mode),
                 as.matrix(info_data), infor0,
                 as.integer(init_idx), as.integer(min_support),
-                as.integer(max_iter), as.numeric(tol), isTRUE(verbose))
+                as.integer(max_iter), as.numeric(tol), isTRUE(verbose),
+                as.integer(engine_mode), as.integer(add_per_iter))
 }
 
 # Candidate-design contribution b * I_xi for an explicit (possibly off-grid)

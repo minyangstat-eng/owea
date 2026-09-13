@@ -194,9 +194,24 @@ static std::vector<int> iboss(const mat& X, int subsize) {
 //  This body is representation-agnostic: the only difference between the
 //  vector and matrix paths is how pinfo was built.
 // ---------------------------------------------------------------------
+// forward declaration (defined below): normalised Phi_p criterion of a design
+static double criterion(int pp, const std::vector<int>& idx, const vec& w,
+                        int info_mode, const mat& data, int k,
+                        const mat& wb, const mat& infor0);
+
+//  mode = 0: the original damped Newton step -- the damping factor is halved
+//            whenever a trial leaves the simplex and is never restored.
+//  mode = 1: active-set step control -- the Newton direction (or steepest
+//            descent if it is not a descent direction) is cut at the first
+//            weight that would reach zero, accepted only under an Armijo
+//            decrease of the criterion, and the full step is tried again at
+//            the next iteration.  Weights that reach zero stay in the support
+//            (with weight 0) until new_weight2() prunes them; convergence is
+//            measured by the projected gradient.
 static void new_weight1_core(int pp, const std::vector<mat>& pinfo,
                              const mat& infor0, const vec& w0, const mat& wb,
-                             double r_weight, vec& weight_out, int& stop_out) {
+                             double r_weight, vec& weight_out, int& stop_out,
+                             int mode = 0) {
     int n = (int) pinfo.size();
     int v = wb.n_rows;
 
@@ -207,13 +222,29 @@ static void new_weight1_core(int pp, const std::vector<mat>& pinfo,
         dinfor[i]    = pinfo[i] - last_infor;
     }
 
+    // criterion (up to the 1/v normalisation) at a vector of free weights;
+    // used by the Armijo test of mode 1
+    auto crit_of = [&](const vec& wfree) -> double {
+        mat infor = (r_weight - accu(wfree)) * last_infor;
+        for (int i = 0; i < n - 1; ++i) infor += wfree(i) * infor_blk[i];
+        mat S = wb * spd_inv(infor + infor0) * wb.t();
+        if (pp == 0) {
+            double val, sign;
+            log_det(val, sign, S);
+            return (sign > 0.0) ? val : datum::inf;
+        }
+        return trace(mpow(S, pp));
+    };
+
     vec    weight = w0.subvec(0, n - 2);
     double w_diff = 1.0, repli = 1.0, indic = 1.0, delta = 1.0;
     vec    d1w(n - 1, fill::ones);
     mat    d2w(n - 1, n - 1, fill::ones);
     vec    new_weight = weight;
 
-    while (w_diff > 1e-6 && indic > 0.5 && repli < 40.0) {
+    const double wtol    = 1e-12;                   // weights below this are "at the bound"
+    const double max_rep = (mode == 0) ? 40.0 : 100.0;
+    while (w_diff > 1e-6 && indic > 0.5 && repli < max_rep) {
         mat infor = (r_weight - accu(weight)) * last_infor;
         for (int i = 0; i < n - 1; ++i) infor += weight(i) * infor_blk[i];
 
@@ -268,15 +299,67 @@ static void new_weight1_core(int pp, const std::vector<mat>& pinfo,
             }
         }
 
-        new_weight = weight - delta * (pinv(d2w) * d1w);
+        if (mode == 0) {
+            new_weight = weight - delta * (pinv(d2w) * d1w);
 
-        if (new_weight.min() < 0.0 || accu(new_weight) > r_weight) {
-            if (delta > 1e-10) delta /= 2.0; else indic = 0.0;
-        } else {
-            w_diff  = norm(d1w);
-            repli  += 1.0;
-            weight  = new_weight;
+            if (new_weight.min() < 0.0 || accu(new_weight) > r_weight) {
+                if (delta > 1e-10) delta /= 2.0; else indic = 0.0;
+            } else {
+                w_diff  = norm(d1w);
+                repli  += 1.0;
+                weight  = new_weight;
+            }
+            continue;
         }
+
+        // ---- mode 1: active-set step control ------------------------
+        double slack = r_weight - accu(weight);         // weight of the absorbing point
+        // make a direction feasible on the active face: block bound-active
+        // coordinates and, if the absorbing point is at 0, keep the sum fixed
+        auto make_feasible = [&](vec& dv) {
+            for (int i = 0; i < n - 1; ++i)
+                if (weight(i) <= wtol && dv(i) < 0.0) dv(i) = 0.0;
+            if (slack <= wtol && accu(dv) > 0.0) {
+                uvec fr = find(dv != 0.0);
+                if (fr.n_elem > 0) dv.elem(fr) -= accu(dv) / fr.n_elem;
+                for (int i = 0; i < n - 1; ++i)
+                    if (weight(i) <= wtol && dv(i) < 0.0) dv(i) = 0.0;
+            }
+        };
+        vec dir = -(pinv(d2w) * d1w);                   // Newton direction
+        make_feasible(dir);
+        double slope = dot(d1w, dir);
+        if (!(slope < 0.0)) {                           // not a descent direction
+            dir = -d1w;
+            make_feasible(dir);
+            slope = dot(d1w, dir);
+            if (!(slope < -1e-14)) { indic = 0.0; break; }   // stationary on the active face
+        }
+        double tmax = 1.0;                              // ratio test: first weight to hit 0
+        for (int i = 0; i < n - 1; ++i)
+            if (dir(i) < 0.0) tmax = std::min(tmax, -weight(i) / dir(i));
+        double sdir = accu(dir);
+        if (sdir > 0.0) tmax = std::min(tmax, std::max(slack, 0.0) / sdir);
+        if (tmax * norm(dir) < 1e-14) { indic = 0.0; break; }   // no feasible movement
+        double f0 = crit_of(weight);
+        double t  = tmax;
+        bool accepted = false;
+        for (int bt = 0; bt < 40 && t > 1e-14; ++bt, t *= 0.5) {   // Armijo backtracking
+            vec wn = weight + t * dir;
+            wn.elem(find(wn < wtol)).zeros();           // snap bound hits to exactly 0
+            if (accu(wn) > r_weight - wtol) wn *= r_weight / accu(wn);
+            double f1 = crit_of(wn);
+            if (std::isfinite(f1) && f1 <= f0 + 1e-4 * t * slope) {
+                new_weight = wn; accepted = true; break;
+            }
+        }
+        if (!accepted) { indic = 0.0; break; }
+        double pg = 0.0;                                // projected-gradient residual
+        for (int i = 0; i < n - 1; ++i)
+            if (!(new_weight(i) <= wtol && d1w(i) > 0.0)) pg += d1w(i) * d1w(i);
+        w_diff = std::sqrt(pg);
+        repli += 1.0;
+        weight = new_weight;
     }
 
     stop_out = (norm(d1w) > 1e-5) ? 0 : 1;
@@ -302,11 +385,23 @@ static std::vector<mat> build_pinfo(const std::vector<int>& ind,
 //                   min_support = k; for a multistage design the existing
 //                   design already supplies rank, so min_support is smaller.
 // ---------------------------------------------------------------------
+//  mode = 0: the original rule -- after each converged Newton solve remove the
+//            single smallest-weight point (if below 1e-6) and re-solve.
+//  mode = 1: batch active-set pruning -- remove ALL points with weight below
+//            1e-6 whose directional derivative is not positive (a positive
+//            value marks an under-weighted point that would re-enter at once),
+//            keep at least min_support points, and accept the batch only if the
+//            criterion stays finite and essentially unchanged (estimability of
+//            the quantity of interest is preserved); otherwise fall back to the
+//            single smallest-weight point.  Then re-solve with mode-1 Newton.
+//  tol: a tiny-weight point is dropped only if its directional derivative is
+//       <= tol (it is not a violator, so it would not be re-added).
 static void new_weight2(int pp, std::vector<int> ind, const mat& infor0,
                         vec w0, const mat& wb, int info_mode, const mat& data,
-                        int k, int min_support, std::vector<int>& out_idx, vec& out_w) {
+                        int k, int min_support, std::vector<int>& out_idx, vec& out_w,
+                        int mode = 0, double tol = 1e-8) {
     vec weight;
-    if ((int) ind.size() > 1) {
+    if ((int) ind.size() > 1 && mode == 0) {
         std::vector<mat> pinfo = build_pinfo(ind, info_mode, data, k);
         int stop;
         new_weight1_core(pp, pinfo, infor0, w0, wb, 1.0, weight, stop);
@@ -321,6 +416,62 @@ static void new_weight2(int pp, std::vector<int> ind, const mat& infor0,
                 int st;
                 new_weight1_core(pp, pinfo, infor0, weight, wb, 1.0, weight, st);
             }
+        }
+    } else if ((int) ind.size() > 1) {
+        std::vector<mat> pinfo = build_pinfo(ind, info_mode, data, k);
+        int stop;
+        new_weight1_core(pp, pinfo, infor0, w0, wb, 1.0, weight, stop, 1);
+
+        while ((int) ind.size() > 1 && (int) ind.size() > min_support &&
+               weight.min() < 1e-6) {
+            int n = (int) ind.size();
+            vec wn = clamp(weight, 0.0, datum::inf); wn /= accu(wn);
+            // directional derivatives of the support points at the current design
+            mat opt_infor(k, k, fill::zeros);
+            for (int i = 0; i < n; ++i) opt_infor += wn(i) * pinfo[i];
+            mat part; double coeff;
+            part_coeff(pp, opt_infor + infor0, wb, part, coeff);
+            double diff1 = trace(opt_infor * part);
+            std::vector<int> drop;
+            for (int i = 0; i < n; ++i) {
+                double di = coeff * (trace(part * pinfo[i]) - diff1);
+                if (weight(i) < 1e-6 && di <= tol) drop.push_back(i);
+            }
+            if (drop.empty()) break;                 // tiny weights are all under-weighted: keep
+            int max_drop = n - std::max(min_support, 1);
+            if ((int) drop.size() > max_drop) {      // keep at least min_support points
+                std::sort(drop.begin(), drop.end(),
+                          [&](int a, int b) { return weight(a) < weight(b); });
+                drop.resize(max_drop);
+            }
+            auto apply_drop = [&](const std::vector<int>& d, std::vector<int>& ind2, vec& w2) {
+                std::vector<bool> rm(n, false);
+                for (int j : d) rm[j] = true;
+                ind2.clear(); std::vector<double> wv;
+                for (int i = 0; i < n; ++i)
+                    if (!rm[i]) { ind2.push_back(ind[i]); wv.push_back(wn(i)); }
+                w2 = vec(wv); w2 /= accu(w2);
+            };
+            double c_before = criterion(pp, ind, wn, info_mode, data, k, wb, infor0);
+            auto acceptable = [&](double c_after) {
+                return std::isfinite(c_after) &&
+                       c_after <= c_before + 1e-3 * std::abs(c_before) + 1e-6;
+            };
+            std::vector<int> ind2; vec w2;
+            apply_drop(drop, ind2, w2);
+            bool ok = acceptable(criterion(pp, ind2, w2, info_mode, data, k, wb, infor0));
+            if (!ok && drop.size() > 1) {            // batch broke estimability: single drop
+                drop.assign(1, (int) weight.index_min());
+                apply_drop(drop, ind2, w2);
+                ok = acceptable(criterion(pp, ind2, w2, info_mode, data, k, wb, infor0));
+            }
+            if (!ok) break;
+            ind = ind2;
+            pinfo = build_pinfo(ind, info_mode, data, k);
+            if ((int) ind.size() > 1) {
+                int st;
+                new_weight1_core(pp, pinfo, infor0, w2, wb, 1.0, weight, st, 1);
+            } else weight = w2;
         }
     }
     out_idx = ind;
@@ -504,11 +655,17 @@ List optimize_weights_cpp(int pp, const arma::mat& wb, int info_mode,
 //  Returns: index (1-based support), weight, sensitivity (max directional
 //  derivative), iter (outer iterations), value (normalised Phi_p).
 // =====================================================================
+//  mode      0 = original engine; 1 = active-set Newton step control and batch
+//            pruning in the weight step (see new_weight1_core / new_weight2).
+//  add_per_iter  number of candidate points added per exchange iteration
+//            (mode 1 only; the original engine adds one).  At most 20% of the
+//            current support is added in one iteration.
 // [[Rcpp::export]]
 List appro_opt_cpp(int pp, const arma::mat& wb, int info_mode,
                    const arma::mat& info_data, const arma::mat& infor0,
                    IntegerVector init_idx, int min_support,
-                   int max_iter, double tol, bool verbose) {
+                   int max_iter, double tol, bool verbose,
+                   int mode = 0, int add_per_iter = 1) {
     int k = (info_mode == 0) ? (int) info_data.n_rows
                              : (int) std::lround(std::sqrt((double) info_data.n_rows));
 
@@ -526,28 +683,49 @@ List appro_opt_cpp(int pp, const arma::mat& wb, int info_mode,
     vec w0(idx0.size());
     w0.fill(1.0 / idx0.size());
     std::vector<int> sup; vec sw;
-    new_weight2(pp, idx0, infor0, w0, wb, info_mode, info_data, k, min_support, sup, sw);
+    new_weight2(pp, idx0, infor0, w0, wb, info_mode, info_data, k, min_support, sup, sw, mode, tol);
 
     std::vector<int> cidx; vec cw;
     combine(sup, sw, cidx, cw);
 
     mat opt_infor = infor_ind(cidx, cw, info_mode, info_data, k);
-    int    vidx; double sen;
-    verify_equiv(pp, opt_infor, infor0, wb, info_mode, info_data, k, vidx, sen);
+    vec dir = directional_deriv(pp, opt_infor, infor0, wb, info_mode, info_data, k);
+    uword vmax = dir.index_max();
+    int    vidx = (int) vmax + 1;
+    double sen  = dir(vmax);
 
     int iter = 1;
-    // ---- 3-4. add the best point, re-optimise, until d_p <= tol -----
+    // ---- 3-4. add the best point(s), re-optimise, until d_p <= tol --
     while (sen > tol && iter < max_iter) {
         std::vector<int> newx = cidx;
-        newx.push_back(vidx);
-        vec new_w0(cw.n_elem + 1);
+        int n_add = 1;
+        if (mode == 1 && add_per_iter > 1)
+            n_add = std::min(add_per_iter,
+                             std::max(1, (int) std::floor(0.2 * (double) cidx.size())));
+        if (n_add <= 1) {
+            newx.push_back(vidx);
+        } else {                                     // the n_add worst violators not in the support
+            uvec ord = sort_index(dir, "descend");
+            int added = 0;
+            for (uword j = 0; j < ord.n_elem && added < n_add; ++j) {
+                if (dir(ord(j)) <= tol) break;
+                int id = (int) ord(j) + 1;
+                if (std::find(cidx.begin(), cidx.end(), id) == cidx.end()) {
+                    newx.push_back(id); ++added;
+                }
+            }
+            if (added == 0) newx.push_back(vidx);
+        }
+        vec new_w0(newx.size(), fill::zeros);
         new_w0.subvec(0, cw.n_elem - 1) = cw;
-        new_w0(cw.n_elem) = 0.0;
 
-        new_weight2(pp, newx, infor0, new_w0, wb, info_mode, info_data, k, min_support, sup, sw);
+        new_weight2(pp, newx, infor0, new_w0, wb, info_mode, info_data, k, min_support, sup, sw, mode, tol);
         combine(sup, sw, cidx, cw);
         opt_infor = infor_ind(cidx, cw, info_mode, info_data, k);
-        verify_equiv(pp, opt_infor, infor0, wb, info_mode, info_data, k, vidx, sen);
+        dir  = directional_deriv(pp, opt_infor, infor0, wb, info_mode, info_data, k);
+        vmax = dir.index_max();
+        vidx = (int) vmax + 1;
+        sen  = dir(vmax);
         ++iter;
         if (verbose)
             Rcout << "  iter " << iter << "   support " << cidx.size()

@@ -15,6 +15,24 @@ on it.
 
 ---
 
+## What's new in 0.4.0
+
+- **Active-set engine** — `optimal_design(engine = "active-set")` replaces the
+  weight step of the OWEA solver by an active-set Newton method: the step is cut
+  at the first weight that would reach zero and accepted under an Armijo decrease
+  of the criterion, every point the step pushes to zero is pruned in one batch
+  (the classic engine removes one point per Newton solve), and `add_per_iter`
+  violating candidates are added per exchange iteration. It works for every
+  criterion and quantity of interest (`wb`, `subset`, `grad_g`) and reaches the
+  same designs as the classic engine. See §8.
+- **Benchmarks** (`owea_engine_benchmark.R` in the repository root): on a
+  401,841-point logistic grid with 4 parameters (D- and A-optimality, all
+  parameters and a subset) both engines reach the same designs and solve in
+  0.3–0.4 s. The new engine pays off when the weight step dominates — a large
+  starting support or a design with hundreds of support points — where it cut
+  solve times two- to four-fold in our tests. The default `engine = "classic"`
+  is unchanged and the test suite passes identically.
+
 ## 0. Web app (no coding required)
 
 For practitioners who would rather not write R, `owea` ships a point-and-click
@@ -298,8 +316,46 @@ that are close together (weighted centroid, then re-optimise the weights):
 | `global_step` | `NULL` | grid step for the `check_global` verification (default the finest `step_sequence` step) |
 | `max_iter` | `100` | maximum outer iterations per stage |
 | `eps0` | `1e-6` | stopping threshold on the directional derivative |
+| `engine` | `"classic"` | weight step of the OWEA solver: `"classic"` (the original damped Newton, one point pruned per Newton solve) or `"active-set"` (ratio-test/Armijo Newton step, batch pruning, batched additions — see below) |
+| `add_per_iter` | `1` | `engine = "active-set"` only: number of violating candidates added per exchange iteration (at most 20% of the current support) |
 | `accept_tol` | `1e-9` | a refinement stage is kept only if it converges and does not worsen the criterion by more than this |
 | `verbose` | `FALSE` | print stage-by-stage progress |
+
+### The active-set engine (`engine = "active-set"`)
+
+Both engines run the same exchange loop — add the candidate with the largest
+directional derivative, re-optimise the weights on the support, repeat until
+`max_d <= eps0` — and converge to the same design. They differ in the weight
+step:
+
+- **classic** — a damped Newton step whose damping is halved whenever a trial
+  leaves the simplex; after each converged solve the single smallest-weight
+  point is removed and the solve repeated. Pruning a large starting support
+  therefore costs one Newton solve per removed point.
+- **active-set** — the Newton direction is cut at the first weight that would
+  reach zero and accepted only under an Armijo decrease of the criterion; all
+  points the step pushes to zero are removed in one batch. A point is never
+  dropped while its directional derivative is positive (it is under-weighted,
+  not superfluous), the support never falls below the rank-aware minimum, and a
+  batch is rejected — falling back to a single removal — if it would make the
+  quantity of interest non-estimable. With `add_per_iter > 1` the worst
+  violators are added several at a time.
+
+Use it when the starting support is large (the default minmax start hands
+`2 × ncol(candidate_set)` points to the weight step), when the optimal design
+has hundreds of support points, or when a solve seems to spend its time in the
+weight step. For large candidate sets a good combination is
+
+```r
+optimal_design(info_matrix = f, candidate_set = X, p = 0,
+               engine = "active-set", add_per_iter = 5,
+               init_method = "MA", ma_max_iter = 20, max_iter = 1000)
+```
+
+Raise `max_iter` for problems with many support points: each exchange
+iteration adds at most `add_per_iter` points (one for the classic engine), so a
+design with 300 support points needs at least that many iterations from a small
+start.
 
 ### Return value
 
@@ -323,7 +379,10 @@ Always check `res$converged` / `res$max_d`. The package also warns you:
 - **Hard problems** — if a cold `candidate_set` solve stalls (common for many
   parameters on a large grid), `auto_warm_start = TRUE` (default) retries it
   warm-started from a coarse multistage solve, usually reaching the global
-  optimum transparently.
+  optimum transparently. That coarse grid spans the bounding box of the
+  candidate columns, so it is only feasible for candidate sets with a handful
+  of columns; for candidate sets with many columns use `init_method = "MA"`
+  with a larger `max_iter` and `engine = "active-set"` instead.
 
 ---
 

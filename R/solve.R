@@ -221,6 +221,19 @@ owea <- function(prob, eps0 = 1e-6, max_outer = 2000L, verbose = FALSE,
 #' @param eps0 stopping threshold on the directional derivative.
 #' @param accept_tol a refinement stage is kept only if it converges and the
 #'   criterion does not worsen by more than this.
+#' @param engine \code{"classic"} (default) runs the original OWEA engine.
+#'   \code{"active-set"} replaces the weight step by an active-set Newton method:
+#'   the step is cut at the first weight that would reach zero and accepted
+#'   under an Armijo decrease of the criterion, all points the step pushes to
+#'   zero are pruned in one batch (never a point whose directional derivative is
+#'   still positive, and never below the rank-aware minimum support or past the
+#'   estimability of the quantity of interest), and \code{add_per_iter}
+#'   candidates are added per exchange iteration. Applies to every criterion
+#'   and \code{wb}/\code{subset}/\code{grad_g}; both engines converge to the
+#'   same design, the active-set engine typically in far fewer Newton solves.
+#' @param add_per_iter number of violating candidate points added per exchange
+#'   iteration when \code{engine = "active-set"} (at most 20\% of the current
+#'   support per iteration); ignored by the classic engine, which adds one.
 #' @param verbose print stage-by-stage progress.
 #' @return list with \code{support}, \code{weights}, \code{criterion},
 #'   \code{max_d}, \code{information} (the resulting per-observation information
@@ -257,6 +270,7 @@ optimal_design <- function(design_box = NULL, step_sequence = NULL,
                            check_global = FALSE, global_step = NULL,
                            global_max_points = 1e6,
                            max_iter = 100L, eps0 = 1e-6,
+                           engine = c("classic", "active-set"), add_per_iter = 1L,
                            accept_tol = 1e-9, verbose = FALSE) {
   # Wall clock for the WHOLE call, as exact_design() and compound_design() also
   # report it: the grid construction, the model evaluation over it and any
@@ -265,6 +279,11 @@ optimal_design <- function(design_box = NULL, step_sequence = NULL,
   # times stay in `times`.
   t_start <- proc.time()[3]
   p <- .check_criterion(p)
+  engine <- match.arg(engine)
+  engine_mode <- if (identical(engine, "active-set")) 1L else 0L
+  add_per_iter <- suppressWarnings(as.integer(add_per_iter))[1]
+  if (is.na(add_per_iter) || add_per_iter < 1L)
+    stop("'add_per_iter' must be a positive integer.", call. = FALSE)
 
   # a formula-style model spec ('link' + f/x/fx/ff/xx) is a third way to specify
   # the model; it builds info_vector (and draws theta ~ N(0,1) for logit/loglinear
@@ -366,7 +385,8 @@ optimal_design <- function(design_box = NULL, step_sequence = NULL,
   # merging is applied once at the end via finalize_merge()).
   solve_prepared <- function(X, scaled, init_idx) {
     res <- .solve_engine(p, wb_use, info_mode, scaled, infor0,
-                         init_idx, max_iter, eps0, FALSE, min_support = ms)
+                         init_idx, max_iter, eps0, FALSE, min_support = ms,
+                         engine_mode = engine_mode, add_per_iter = add_per_iter)
     list(support = X[res$index, , drop = FALSE], weights = res$weight,
          criterion = res$value, max_d = res$sensitivity,
          converged = res$sensitivity <= eps0, iterations = res$iter)

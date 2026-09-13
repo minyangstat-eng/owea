@@ -41,6 +41,8 @@ optimal_design(
   global_max_points = 1e+06,
   max_iter = 100L,
   eps0 = 1e-06,
+  engine = c("classic", "active-set"),
+  add_per_iter = 1L,
   accept_tol = 1e-09,
   verbose = FALSE
 )
@@ -190,6 +192,21 @@ coarser \code{global_step}, or verify on a \code{candidate_set} instead.}
 \item{max_iter}{maximum outer iterations per stage.}
 
 \item{eps0}{stopping threshold on the directional derivative.}
+
+\item{engine}{\code{"classic"} (default) runs the original OWEA engine.
+\code{"active-set"} replaces the weight step by an active-set Newton method:
+the step is cut at the first weight that would reach zero and accepted
+under an Armijo decrease of the criterion, all points the step pushes to
+zero are pruned in one batch (never a point whose directional derivative is
+still positive, and never below the rank-aware minimum support or past the
+estimability of the quantity of interest), and \code{add_per_iter}
+candidates are added per exchange iteration. Applies to every criterion
+and \code{wb}/\code{subset}/\code{grad_g}; both engines converge to the
+same design, the active-set engine typically in far fewer Newton solves.}
+
+\item{add_per_iter}{number of violating candidate points added per exchange
+iteration when \code{engine = "active-set"} (at most 20\% of the current
+support per iteration); ignored by the classic engine, which adds one.}
 
 \item{accept_tol}{a refinement stage is kept only if it converges and the
 criterion does not worsen by more than this.}

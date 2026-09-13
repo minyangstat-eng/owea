@@ -63,7 +63,7 @@ optimize_weights_cpp <- function(pp, wb, info_mode, info_data, infor0, min_suppo
     .Call(`_owea_optimize_weights_cpp`, pp, wb, info_mode, info_data, infor0, min_support)
 }
 
-appro_opt_cpp <- function(pp, wb, info_mode, info_data, infor0, init_idx, min_support, max_iter, tol, verbose) {
-    .Call(`_owea_appro_opt_cpp`, pp, wb, info_mode, info_data, infor0, init_idx, min_support, max_iter, tol, verbose)
+appro_opt_cpp <- function(pp, wb, info_mode, info_data, infor0, init_idx, min_support, max_iter, tol, verbose, mode = 0L, add_per_iter = 1L) {
+    .Call(`_owea_appro_opt_cpp`, pp, wb, info_mode, info_data, infor0, init_idx, min_support, max_iter, tol, verbose, mode, add_per_iter)
 }
 

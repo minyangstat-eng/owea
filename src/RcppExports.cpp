@@ -207,8 +207,8 @@ BEGIN_RCPP
 END_RCPP
 }
 // appro_opt_cpp
-List appro_opt_cpp(int pp, const arma::mat& wb, int info_mode, const arma::mat& info_data, const arma::mat& infor0, IntegerVector init_idx, int min_support, int max_iter, double tol, bool verbose);
-RcppExport SEXP _owea_appro_opt_cpp(SEXP ppSEXP, SEXP wbSEXP, SEXP info_modeSEXP, SEXP info_dataSEXP, SEXP infor0SEXP, SEXP init_idxSEXP, SEXP min_supportSEXP, SEXP max_iterSEXP, SEXP tolSEXP, SEXP verboseSEXP) {
+List appro_opt_cpp(int pp, const arma::mat& wb, int info_mode, const arma::mat& info_data, const arma::mat& infor0, IntegerVector init_idx, int min_support, int max_iter, double tol, bool verbose, int mode, int add_per_iter);
+RcppExport SEXP _owea_appro_opt_cpp(SEXP ppSEXP, SEXP wbSEXP, SEXP info_modeSEXP, SEXP info_dataSEXP, SEXP infor0SEXP, SEXP init_idxSEXP, SEXP min_supportSEXP, SEXP max_iterSEXP, SEXP tolSEXP, SEXP verboseSEXP, SEXP modeSEXP, SEXP add_per_iterSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -222,7 +222,9 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< int >::type max_iter(max_iterSEXP);
     Rcpp::traits::input_parameter< double >::type tol(tolSEXP);
     Rcpp::traits::input_parameter< bool >::type verbose(verboseSEXP);
-    rcpp_result_gen = Rcpp::wrap(appro_opt_cpp(pp, wb, info_mode, info_data, infor0, init_idx, min_support, max_iter, tol, verbose));
+    Rcpp::traits::input_parameter< int >::type mode(modeSEXP);
+    Rcpp::traits::input_parameter< int >::type add_per_iter(add_per_iterSEXP);
+    rcpp_result_gen = Rcpp::wrap(appro_opt_cpp(pp, wb, info_mode, info_data, infor0, init_idx, min_support, max_iter, tol, verbose, mode, add_per_iter));
     return rcpp_result_gen;
 END_RCPP
 }
@@ -239,7 +241,7 @@ static const R_CallMethodDef CallEntries[] = {
     {"_owea_verify_equiv_cpp", (DL_FUNC) &_owea_verify_equiv_cpp, 6},
     {"_owea_directional_deriv_cpp", (DL_FUNC) &_owea_directional_deriv_cpp, 6},
     {"_owea_optimize_weights_cpp", (DL_FUNC) &_owea_optimize_weights_cpp, 6},
-    {"_owea_appro_opt_cpp", (DL_FUNC) &_owea_appro_opt_cpp, 10},
+    {"_owea_appro_opt_cpp", (DL_FUNC) &_owea_appro_opt_cpp, 12},
     {NULL, NULL, 0}
 };
 
