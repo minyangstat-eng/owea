@@ -425,6 +425,27 @@ static void cmp_weights2(const std::vector<CmpComp>& C,
         while (ind.size() > 1 && weight.min() < 1e-6) {
             if ((int) ind.size() <= min_support) break;
             uword imin = weight.index_min();
+            // Never prune into a SINGULAR information matrix.  With a singular
+            // M_j the criterion is evaluated through the ridge / pseudo-inverse
+            // fallback of cmp_spd_inv() and the sensitivities become
+            // inconsistent, which made the exchange loop cycle without ever
+            // converging (e.g. a 6-point support for a 7-parameter component
+            // whose quantity of interest has only 3 parameters).  min_support
+            // is rank-based and cannot see this, so check the Cholesky
+            // factorisation of every component's M_j after the removal.
+            {
+                std::vector<int> ind2 = ind;
+                ind2.erase(ind2.begin() + imin);
+                vec w2 = weight; w2.shed_row(imin);
+                w2 = clamp(w2, 0.0, datum::inf); w2 /= accu(w2);
+                bool ok = true;
+                for (size_t j = 0; j < C.size() && ok; ++j) {
+                    mat Mj = C[j].infor0 + cmp_infor_ind(C[j], ind2, w2);
+                    mat R;
+                    ok = chol(R, 0.5 * (Mj + Mj.t()));
+                }
+                if (!ok) break;
+            }
             ind.erase(ind.begin() + imin);
             weight.shed_row(imin);
             if (ind.size() > 1) {

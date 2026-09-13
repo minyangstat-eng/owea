@@ -264,6 +264,38 @@
   res
 }
 
+# ---- reference solve with the single-criterion engine ---------------------
+# The reference value Psi_j^* must be the TRUE optimum of component j alone:
+# an under-estimated Psi_j^* inflates every efficiency reported for that
+# component above 1.  The compound engine's own single-component solve can
+# stall (it starts from a minmax support and, until 0.4.0, could prune into a
+# singular information matrix), so compound_design() also solves each
+# component with optimal_design() -- which has its own starting rules and warm
+# starts -- and keeps whichever design scores higher under the component.
+# Returns NULL if optimal_design() cannot be run for this component.
+.cmp_reference_single <- function(cc, design_box, step_sequence, candidate_set,
+                                  factor_levels, xi0_points, xi0_weights, n0, n1,
+                                  max_iter, eps0, accept_tol) {
+  args <- list(p = cc$p, wb = cc$wb, theta = cc$theta_use,
+               xi0_points = xi0_points, xi0_weights = xi0_weights,
+               n0 = n0, n1 = n1, max_iter = max_iter, eps0 = eps0,
+               accept_tol = accept_tol, verbose = FALSE)
+  if (cc$info_mode == 0L) args$info_vector <- cc$info_vector
+  else                    args$info_matrix <- cc$info_matrix
+  if (!is.null(candidate_set)) {
+    args$candidate_set <- candidate_set
+    args$factor_levels <- factor_levels
+  } else {
+    args$design_box    <- design_box
+    args$step_sequence <- step_sequence
+  }
+  r <- tryCatch(suppressWarnings(do.call(optimal_design, args)),
+                error = function(e) NULL)
+  if (is.null(r)) return(NULL)
+  list(support = r$support, weights = r$weights,
+       converged = isTRUE(r$converged), max_d = r$max_d)
+}
+
 #' Compound (multi-criterion, multi-model) optimal design.
 #'
 #' Finds one approximate design that is good simultaneously for several
@@ -436,14 +468,30 @@ compound_design <- function(components, alpha = NULL,
                 .cmp_solve_set(one, 1, X, max_iter = max_iter, eps0 = eps0)
               else .cmp_solve_box(one, 1, meta$lo, meta$hi, stage_by, is_factor,
                                   nlevels, max_iter, eps0, accept_tol, FALSE)
-        psi_star[j]      <- rj$psi[1]
-        ref_designs[[j]] <- list(support = rj$support, weights = rj$weights)
-        if (!rj$converged)
+        psi_j <- rj$psi[1]; conv_j <- isTRUE(rj$converged); md_j <- rj$sensitivity
+        ref_j <- list(support = rj$support, weights = rj$weights)
+        # cross-check with the single-criterion engine and keep the better design
+        alt <- .cmp_reference_single(comps[[j]], design_box, step_sequence,
+                                     candidate_set, factor_levels,
+                                     xi0_points, xi0_weights, n0, n1,
+                                     max_iter, eps0, accept_tol)
+        if (!is.null(alt)) {
+          pa <- tryCatch(.cmp_eval(one, 1, alt$support, alt$weights)$psi[1],
+                         error = function(e) NA_real_)
+          if (is.finite(pa) && (pa > psi_j * (1 + 1e-9) || (!conv_j && alt$converged))) {
+            psi_j <- pa; ref_j <- list(support = alt$support, weights = alt$weights)
+            conv_j <- alt$converged; md_j <- alt$max_d
+          }
+        }
+        psi_star[j]      <- psi_j
+        ref_designs[[j]] <- ref_j
+        if (!conv_j)
           warning(sprintf(paste0("compound_design(): the reference solve for %s ",
-                                 "did not converge (max_d = %.3e); the effective ",
-                                 "weight for that component is therefore not ",
+                                 "did not converge (max_d = %.3e); Psi* and the ",
+                                 "efficiencies reported for that component are ",
+                                 "unreliable, and its effective weight is not ",
                                  "alpha/Psi* as intended."),
-                          comps[[j]]$name, rj$sensitivity), call. = FALSE)
+                          comps[[j]]$name, md_j), call. = FALSE)
       }
     } else {
       psi_star <- as.numeric(psi_star)
@@ -475,6 +523,16 @@ compound_design <- function(components, alpha = NULL,
   })
   eff <- if (isTRUE(efficiency)) res$psi / psi_star else rep(NA_real_, J)
   nms <- vapply(comps, function(cc) cc$name, character(1))
+  # an efficiency above 1 is impossible against a true optimum: it means the
+  # reference value for that component is too small (its solve was not optimal)
+  bad <- which(is.finite(eff) & eff > 1 + 1e-6)
+  if (length(bad))
+    warning(sprintf(paste0("compound_design(): efficiency above 1 for %s -- the ",
+                           "reference optimum Psi* of that component is not the ",
+                           "true optimum, so its efficiencies are unreliable. ",
+                           "Try a finer or longer step_sequence, or supply ",
+                           "'psi_star' from a converged single-criterion solve."),
+                    paste(nms[bad], collapse = ", ")), call. = FALSE)
 
   # ---- cross-efficiency: every design scored under every component --------
   # Row j is the design optimal for component j alone; the last row is this

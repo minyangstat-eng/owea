@@ -25,6 +25,17 @@
 * README: new "What's new" section, the two arguments in the argument table, a
   section on the active-set engine, and a note that the automatic coarse-grid
   warm start is only feasible for candidate sets with few columns.
+* Bug fix, `compound_design()`: a component's reference optimum `Psi*` could be
+  far too small, which inflated every efficiency reported for that component
+  above 1. The compound engine's single-component solve could prune the support
+  into a singular information matrix (e.g. 6 points for a 7-parameter logistic
+  model with interactions whose quantity of interest was the three main-effect
+  slopes, A-optimality), after which the exchange loop cycled without
+  converging. Two fixes: the engine never removes a point if any component's
+  information matrix would become singular, and each reference value is now
+  cross-checked against `optimal_design()` for that component, keeping the
+  better design. `compound_design()` also warns explicitly when an efficiency
+  exceeds 1.
 
 # owea 0.3.0
 
