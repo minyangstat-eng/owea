@@ -15,6 +15,16 @@ on it.
 
 ---
 
+## What's new in 0.4.1
+
+- **Efficiencies are guaranteed lower bounds** — every efficiency the package
+  reports is now a single number, `efficiency_lower_bound`, certified relative to
+  the *true* optimum (Theorems 4.5 and 4.6 of Becker & Yang), so a reference
+  design that stopped short of the optimum can no longer overstate it. See the
+  "Efficiency lower bounds" bullet in §8. Printed with four decimals.
+- **App** — the model steps remind users that models or quantities of interest
+  beyond the built-in ones can be used in the R package directly.
+
 ## What's new in 0.4.0
 
 - **Active-set engine** — `optimal_design(engine = "active-set")` replaces the
