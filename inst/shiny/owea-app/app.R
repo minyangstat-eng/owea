@@ -2075,7 +2075,8 @@ server <- function(input, output, session) {
         c2$specs, c2$comps, "verify", alpha = cmp_alpha(),
         efficiency = isTRUE(c2$res$efficiency_weighted),
         existing = c2$existing,
-        psi_star = if (isTRUE(c2$res$efficiency_weighted)) c2$res$psi_star else NULL)
+        psi_star = if (isTRUE(c2$res$efficiency_weighted)) c2$res$psi_star else NULL,
+        reference_bound = if (isTRUE(c2$res$efficiency_weighted)) c2$res$reference_bound else NULL)
       withProgress(message = "Scoring the design…", value = 0.5,
         do.call(compound_criterion,
                 c(list(support = d$support, weights = w,

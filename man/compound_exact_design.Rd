@@ -7,7 +7,7 @@
 compound_exact_design(n, components, alpha = NULL,
                       design_box = NULL, step_sequence = NULL,
                       candidate_set = NULL, factor_levels = NULL,
-                      efficiency = TRUE, psi_star = NULL,
+                      efficiency = TRUE, psi_star = NULL, reference_bound = NULL,
                       xi0_points = NULL, xi0_weights = numeric(0),
                       n0 = 0, n1 = 1,
                       max_exchange = 1000L, seed = NULL, snap_support = TRUE,
@@ -19,7 +19,7 @@ compound_exact_design(n, components, alpha = NULL,
 \arguments{
 \item{n}{integer sample size --- the number of runs to allocate.}
 
-\item{components, alpha, efficiency, psi_star}{the compound criterion, exactly
+\item{components, alpha, efficiency, psi_star, reference_bound}{the compound criterion, exactly
 as in \code{\link{compound_design}}.}
 
 \item{design_box, step_sequence, candidate_set, factor_levels}{the design

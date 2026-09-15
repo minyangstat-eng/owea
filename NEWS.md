@@ -20,6 +20,11 @@
 * App: the model step and the compound objectives step remind users that models
   or quantities of interest beyond the built-in ones can be used in the R
   package directly through `info_vector` / `info_matrix` and `wb` / `grad_g`.
+* Bug fix: `compound_exact_design()` accepts `reference_bound` (passed on to
+  `compound_design()`). The app reuses the reference values of a previous run
+  together with their bounds, and an exact compound design on such a rerun
+  failed with "unused argument (reference_bound = ...)". The app's compound
+  verify step now passes the bounds through as well.
 
 # owea 0.4.0
 

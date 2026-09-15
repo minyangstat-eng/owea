@@ -611,3 +611,25 @@ test_that("the criterion-only route scores without the sensitivity scan", {
     expect_false(grepl("NOT assessed", output$cmp_verify_out$html, fixed = TRUE))
   })
 })
+
+# ---- reference bounds travel with cached psi_star (exact + verify paths) ---
+
+test_that("cached psi_star and reference_bound are accepted by the exact and verify paths", {
+  sp <- owea:::.uic_specs(covs2(), comps3())
+  a  <- owea:::.uic_solver_args(sp, comps3(), "design", alpha = c(.4, .35, .25))
+  r  <- do.call(compound_design, a)
+  # the app reuses psi_star AND reference_bound from a previous run: this must
+  # work for an exact design too (it failed with "unused argument" before)
+  ex <- owea:::.uic_solver_args(sp, comps3(), "exact", alpha = c(.4, .35, .25), n = 20)
+  ex$psi_star <- as.numeric(r$psi_star); ex$reference_bound <- as.numeric(r$reference_bound)
+  e <- do.call(compound_exact_design, ex)
+  expect_equal(sum(e$counts), 20L)
+  expect_equal(unname(e$reference_bound), unname(r$reference_bound))
+  expect_true(all(e$efficiency_lower_bound > 0 & e$efficiency_lower_bound <= 1 + 1e-10))
+  # verify target passes the bounds through to compound_criterion()
+  v <- owea:::.uic_solver_args(sp, comps3(), "verify", alpha = c(.4, .35, .25),
+                               psi_star = r$psi_star, reference_bound = r$reference_bound)
+  expect_equal(v$reference_bound, as.numeric(r$reference_bound))
+  cc <- do.call(compound_criterion, c(list(support = r$support, weights = r$weights), v))
+  expect_equal(unname(cc$efficiency_lower_bound), unname(r$efficiency_lower_bound), tolerance = 1e-8)
+})

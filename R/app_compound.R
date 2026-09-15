@@ -153,7 +153,8 @@
 .uic_solver_args <- function(specs, comps,
                              target = c("design", "exact", "verify"),
                              alpha = NULL, efficiency = TRUE,
-                             existing = NULL, psi_star = NULL, n = NULL) {
+                             existing = NULL, psi_star = NULL,
+                             reference_bound = NULL, n = NULL) {
   target <- match.arg(target)
   J <- length(specs)
   if (J != length(comps))
@@ -178,6 +179,9 @@
     # block on the console with nobody to answer it
     args$max_points <- Inf
     if (!is.null(psi_star)) args$psi_star <- as.numeric(psi_star)
+    # the reference designs' certified bounds travel with psi_star, so the
+    # verify scores are the same lower bounds the design step reported
+    if (!is.null(reference_bound)) args$reference_bound <- as.numeric(reference_bound)
   }
 
   # exact designs allocate n runs
