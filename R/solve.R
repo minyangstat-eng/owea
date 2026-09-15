@@ -247,8 +247,8 @@ owea <- function(prob, eps0 = 1e-6, max_outer = 2000L, verbose = FALSE,
 #'   construction, the model evaluation over it and any \code{check_global}
 #'   verification included, so it exceeds \code{sum(times)} --- several-fold on
 #'   a large grid, where building the candidate set dominates the solve),
-#'   \code{box_lo}, \code{box_hi}, \code{p}, \code{efficiency_bound} (a
-#'   certified LOWER BOUND on the design's efficiency relative to the true
+#'   \code{box_lo}, \code{box_hi}, \code{p}, \code{efficiency_lower_bound} (a
+#'   guaranteed lower bound on the design's efficiency relative to the TRUE
 #'   optimum over the design space it was checked on, computed from the design
 #'   alone: \eqn{1/(1 + \mathrm{max\_d}/v)} for D and
 #'   \eqn{1 - \mathrm{max\_d}/\mathrm{criterion}} for A, with \eqn{v} the number
@@ -258,8 +258,8 @@ owea <- function(prob, eps0 = 1e-6, max_outer = 2000L, verbose = FALSE,
 #'   is \code{FALSE}), and
 #'   \code{global_max_d} / \code{global_check} (the whole-box equivalence-theorem
 #'   maximum and whether it is \eqn{\le} \code{eps0}; \code{NA} when not checked;
-#'   when the whole-box check runs, \code{efficiency_bound} is recomputed from
-#'   \code{global_max_d}).
+#'   when the whole-box check runs, \code{efficiency_lower_bound} is recomputed
+#'   from \code{global_max_d}).
 #'   For the multistage (\code{design_box}) path a \code{converged} design is
 #'   optimal only over the refined neighbourhood grids unless
 #'   \code{check_global = TRUE} certifies it over the whole box.
@@ -563,8 +563,8 @@ optimal_design <- function(design_box = NULL, step_sequence = NULL,
                 coef_names = coef_names, link = model_link,
                 # certified lower bound on the efficiency vs the true optimum
                 # over this candidate set (Becker & Yang, Thm 4.5 / 4.6)
-                efficiency_bound = .efficiency_bound(p, cand$max_d, cand$criterion,
-                                                     nrow(wb_use)),
+                efficiency_lower_bound = .efficiency_bound(p, cand$max_d, cand$criterion,
+                                                           nrow(wb_use)),
                 global_max_d = if (cand$converged) cand$max_d else NA_real_,
                 global_check = cand$converged)
     if (!cand$converged)
@@ -618,8 +618,8 @@ optimal_design <- function(design_box = NULL, step_sequence = NULL,
               # certified lower bound on the efficiency vs the optimum over the
               # grids the design was checked on (replaced by the whole-box bound
               # below when check_global runs)
-              efficiency_bound = .efficiency_bound(p, res$max_d, res$criterion,
-                                                   nrow(wb_use)),
+              efficiency_lower_bound = .efficiency_bound(p, res$max_d, res$criterion,
+                                                         nrow(wb_use)),
               global_max_d = NA_real_, global_check = NA)
 
   if (isTRUE(res$converged)) {
@@ -647,8 +647,8 @@ optimal_design <- function(design_box = NULL, step_sequence = NULL,
         g <- global_md(res$support, res$weights, box_lo, box_hi, gstep)
         out$global_max_d <- g$max_d
         out$global_check <- (g$max_d <= eps0)
-        out$efficiency_bound <- .efficiency_bound(p, g$max_d, res$criterion,
-                                                  nrow(wb_use))
+        out$efficiency_lower_bound <- .efficiency_bound(p, g$max_d, res$criterion,
+                                                        nrow(wb_use))
         if (verbose)
           cat(sprintf("  global check (step (%s), |X|=%d): max_d = %.3e -> %s\n",
                       gstep_lab, g$npoints, g$max_d,

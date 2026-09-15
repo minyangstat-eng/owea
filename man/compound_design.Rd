@@ -78,17 +78,15 @@ per-component values of this design and of each component's own optimum on
 the scale \code{\link{optimal_design}} reports: \eqn{\log\det \Sigma_j / v_j}
 for D, \eqn{\mathrm{tr}\,\Sigma_j / v_j} for A, i.e. \eqn{-\log\Psi_j} and
 \eqn{1/\Psi_j}; smaller is better),
-\code{efficiency} (per-component \eqn{\Psi_j/\Psi_j^{*}}, relative to the
-derived reference designs), \code{reference_bound} (each reference design's
-own certified efficiency bound, Theorems 4.5 and 4.6 of Becker and Yang,
-\emph{Post Hoc Control Group Selection via Constrained Optimal Design}),
-\code{efficiency_certified} (\code{efficiency} times \code{reference_bound}:
-a guaranteed lower bound on each component efficiency relative to the TRUE
-component optimum), \code{criterion_bound} (a certified lower bound on
-\eqn{\Psi_\alpha(\xi)/\Psi_\alpha^{*}}, \eqn{\Psi_\alpha/(\Psi_\alpha +
-\mathrm{max\_d})}), \code{cross_efficiency_certified} (the cross-efficiency
-table with each column multiplied by that component's reference bound),
-\code{alpha},
+\code{efficiency_lower_bound} (per component, a guaranteed lower bound
+relative to the TRUE component optimum: the ratio \eqn{\Psi_j/\Psi_j^{*}} to the
+derived reference design times that reference's own certified bound,
+Theorems 4.5 and 4.6 of Becker and Yang, \emph{Post Hoc Control Group
+Selection via Constrained Optimal Design}), \code{reference_bound} (those
+bounds), \code{criterion_bound} (the compound design's own bound
+\eqn{\Psi_\alpha/(\Psi_\alpha + \mathrm{max\_d})} on
+\eqn{\Psi_\alpha(\xi)/\Psi_\alpha^{*}}, used by
+\code{\link{compound_exact_design}}), \code{alpha},
 \code{at} (the weights actually used), \code{cross_efficiency},
 \code{reference_designs}, \code{information} (a list of the per-component
 information matrices \eqn{M_j}), \code{iterations}, \code{times},

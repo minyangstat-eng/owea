@@ -580,12 +580,14 @@
   eff <- if (!is.finite(crit_design) || !is.finite(crit_ref)) NA_real_
          else if (p_new == 0L) exp(crit_ref - crit_design)
          else                  crit_ref / crit_design
-  # certified: times the reference design's own bound (Becker & Yang, Thm
-  # 4.5 / 4.6), so an unconverged reference cannot inflate the efficiency
-  rb <- if (is.null(ref$efficiency_bound)) NA_real_ else ref$efficiency_bound
+  # ONE efficiency, relative to the TRUE optimum: the ratio to the derived
+  # reference design times that design's own certified bound (Becker & Yang,
+  # Thm 4.5 / 4.6), so an unconverged reference cannot inflate it
+  rb <- if (is.null(ref$efficiency_lower_bound) || !is.finite(ref$efficiency_lower_bound)) 1
+        else ref$efficiency_lower_bound
   list(p = p_new, crit_design = crit_design, crit_ref = crit_ref,
-       efficiency = eff, efficiency_certified = min(eff, 1) * rb,
-       reference_bound = rb, converged = isTRUE(ref$converged),
+       efficiency_lower_bound = if (is.finite(eff)) min(eff, 1) * rb else NA_real_,
+       converged = isTRUE(ref$converged),
        max_sensitivity = v$max_sensitivity)
 }
 

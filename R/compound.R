@@ -294,7 +294,16 @@
   if (is.null(r)) return(NULL)
   list(support = r$support, weights = r$weights,
        converged = isTRUE(r$converged), max_d = r$max_d,
-       efficiency_bound = r$efficiency_bound)
+       efficiency_bound = r$efficiency_lower_bound)
+}
+
+# ONE efficiency per component: the ratio to the derived reference design times
+# that reference's certified bound (a guaranteed lower bound relative to the
+# TRUE component optimum).  Where no bound is available (psi_star supplied
+# without reference_bound) the plain ratio is returned.
+.cmp_certify <- function(eff, bound) {
+  eff <- as.numeric(eff); bound <- as.numeric(bound)
+  ifelse(is.finite(bound), pmin(eff, 1) * bound, eff)
 }
 
 # ---- certified bound for a reference design, on the compound Psi scale ----
@@ -411,7 +420,13 @@
 #'   on the scale \code{\link{optimal_design}} reports: \eqn{\log\det
 #'   \Sigma_j / v_j} for D, \eqn{\mathrm{tr}\,\Sigma_j / v_j} for A, i.e.
 #'   \eqn{-\log\Psi_j} and \eqn{1/\Psi_j}; smaller is better),
-#'   \code{efficiency} (per-component \eqn{\Psi_j/\Psi_j^{*}}), \code{alpha},
+#'   \code{efficiency_lower_bound} (per component, a guaranteed lower bound
+#'   relative to the TRUE component optimum: the ratio \eqn{\Psi_j/\Psi_j^{*}}
+#'   to the derived reference design times that reference's own certified
+#'   bound, Theorems 4.5 and 4.6 of Becker and Yang, \emph{Post Hoc Control
+#'   Group Selection via Constrained Optimal Design}), \code{reference_bound}
+#'   (those bounds), \code{criterion_bound} (the compound design's own bound
+#'   \eqn{\Psi_\alpha/(\Psi_\alpha + \mathrm{max\_d})}), \code{alpha},
 #'   \code{at} (the weights actually used), \code{information} (a list of the
 #'   per-component information matrices \eqn{M_j}), \code{iterations},
 #'   \code{times}, \code{grid_sizes} and \code{total_time}.
@@ -607,19 +622,19 @@ compound_design <- function(components, alpha = NULL,
               # the same values on the scale optimal_design() reports
               component_criterion      = stats::setNames(.cmp_single_scale(res$psi, pvec), nms),
               component_criterion_star = stats::setNames(.cmp_single_scale(psi_star, pvec), nms),
-              efficiency = stats::setNames(eff, nms),
-              # certified (Becker & Yang, Thm 4.5 / 4.6): each reference design's
-              # own bound, the efficiencies multiplied by it (valid vs the TRUE
-              # component optima), and the compound design's first-order bound
-              # Psi_alpha / Psi_alpha* >= Psi_alpha / (Psi_alpha + max_d)
-              reference_bound      = stats::setNames(ref_bound, nms),
-              efficiency_certified = stats::setNames(pmin(eff, 1) * ref_bound, nms),
-              criterion_bound      = res$value / (res$value + max(res$sensitivity, 0)),
+              # ONE efficiency per component, relative to the TRUE component
+              # optimum: the ratio to the derived reference design times that
+              # reference's own certified bound (Becker & Yang, Thm 4.5 / 4.6)
+              efficiency_lower_bound = stats::setNames(.cmp_certify(eff, ref_bound), nms),
+              reference_bound        = stats::setNames(ref_bound, nms),
+              # the compound design's own bound Psi_alpha / Psi_alpha* >=
+              # Psi_alpha / (Psi_alpha + max_d); used by compound_exact_design()
+              criterion_bound = res$value / (res$value + max(res$sensitivity, 0)),
               alpha = stats::setNames(alpha, nms),
               at = stats::setNames(at, nms),
-              cross_efficiency = cross,
-              cross_efficiency_certified = if (is.null(cross)) NULL
-                                           else sweep(pmin(cross, 1), 2, ref_bound, `*`),
+              cross_efficiency = if (is.null(cross)) NULL
+                                 else sweep(pmin(cross, 1), 2,
+                                            ifelse(is.finite(ref_bound), ref_bound, 1), `*`),
               reference_designs = if (is.null(ref_designs)) NULL
                                   else stats::setNames(ref_designs, nms),
               information = stats::setNames(Mlist, nms),
@@ -666,7 +681,8 @@ compound_design <- function(components, alpha = NULL,
 #'   the \code{psi_star} came from (one per component); taken from a
 #'   \code{compound_design} object when one is passed as \code{support}, and
 #'   computed alongside \code{psi_star} when the reference solves are run here.
-#'   Multiplies the efficiencies into \code{efficiency_certified}.
+#'   The reported \code{efficiency_lower_bound} is the ratio to the reference
+#'   times this bound; without it the plain ratio is reported.
 #' @param psi_star reference values \eqn{\Psi_j^{*}}. Required for
 #'   \code{efficiency = TRUE} unless a design space (\code{candidate_set}, or
 #'   \code{design_box} + \code{step}) is supplied, in which case they are
@@ -693,7 +709,7 @@ compound_design <- function(components, alpha = NULL,
 #'   \code{criterion_only = TRUE}.
 #' @param criterion_only if \code{TRUE}, skip the sensitivity scan entirely: no
 #'   grid is built and the design is scored on its own support, so the result
-#'   carries \code{criterion}, \code{psi} and \code{efficiency} but none of
+#'   carries \code{criterion}, \code{psi} and \code{efficiency_lower_bound} but none of
 #'   \code{sensitivity}, \code{max_d}, \code{maximiser} or \code{is_optimal}.
 #'   Needs \code{psi_star} (or \code{efficiency = FALSE}), since without a
 #'   design space the reference values cannot be computed.
@@ -702,7 +718,10 @@ compound_design <- function(components, alpha = NULL,
 #'   (per-component \eqn{\Psi_j}), \code{component_criterion} and
 #'   \code{component_criterion_star} (the same values on the scale
 #'   \code{\link{optimal_design}} reports, see \code{\link{compound_design}}),
-#'   \code{efficiency}, \code{psi_star},
+#'   \code{efficiency_lower_bound} (per component: the ratio to the reference
+#'   times the reference design's certified bound, a guaranteed lower bound
+#'   relative to the TRUE component optimum; the plain ratio when no bound is
+#'   available), \code{reference_bound}, \code{psi_star},
 #'   \code{alpha}, \code{at}, \code{information} (per-component \eqn{M_j}) and,
 #'   when a design space was supplied, \code{sensitivity} (one value per
 #'   candidate), \code{max_d}, \code{maximiser}, \code{is_optimal} and
@@ -862,16 +881,17 @@ compound_criterion <- function(support, weights = NULL, components,
               # the same values on the scale optimal_design() reports
               component_criterion      = stats::setNames(.cmp_single_scale(ev$psi, pvec), nms),
               component_criterion_star = stats::setNames(.cmp_single_scale(psi_star, pvec), nms),
-              efficiency = stats::setNames(
-                if (isTRUE(efficiency)) ev$psi / psi_star else rep(NA_real_, J),
-                nms),
-              # certified vs the TRUE component optima (Becker & Yang, Thm 4.5 / 4.6)
+              # ONE efficiency per component: the ratio to the reference times the
+              # reference's certified bound when available (Becker & Yang, Thm
+              # 4.5 / 4.6), else the plain ratio
+              efficiency_lower_bound = stats::setNames(
+                if (isTRUE(efficiency))
+                  .cmp_certify(ev$psi / psi_star,
+                               if (is.null(reference_bound)) rep(NA_real_, J)
+                               else as.numeric(reference_bound))
+                else rep(NA_real_, J), nms),
               reference_bound = stats::setNames(
                 if (is.null(reference_bound)) rep(NA_real_, J) else as.numeric(reference_bound), nms),
-              efficiency_certified = stats::setNames(
-                if (isTRUE(efficiency) && !is.null(reference_bound))
-                  pmin(ev$psi / psi_star, 1) * as.numeric(reference_bound)
-                else rep(NA_real_, J), nms),
               psi_star = stats::setNames(psi_star, nms),
               alpha = stats::setNames(alpha, nms),
               at = stats::setNames(at, nms),
@@ -934,28 +954,23 @@ print.compound_design <- function(x, ...) {
                 "   (weighted average efficiency, in (0,1])" else ""))
   cat(sprintf("  max_d      : %.3e   %s\n", x$max_d,
               if (isTRUE(x$converged)) "(optimal)" else "(NOT converged)"))
-  if (is.finite(x$criterion_bound))
-    cat(sprintf("  certified  : Psi_alpha >= %.4f%% of its optimum (gap bound from max_d)\n",
-                100 * x$criterion_bound))
   cat("\n  per-component criterion values, on the scale optimal_design() reports",
-      "\n  (D: log det Sigma / v;  A: tr(Sigma) / v;  smaller is better)\n")
+      "\n  (D: log det Sigma / v;  A: tr(Sigma) / v;  smaller is better);",
+      "\n  efficiency_lower_bound = guaranteed lower bound relative to that component's",
+      "\n  TRUE optimum\n")
   tab <- data.frame(alpha = round(x$alpha, 4),
                     p = ifelse(x$p == 0, "D", "A"),
                     criterion = signif(x$component_criterion, 7))
   if (isTRUE(x$efficiency_weighted)) {
-    tab$optimal    <- signif(x$component_criterion_star, 7)
-    tab$efficiency <- round(x$efficiency, 6)
-    tab$certified  <- round(x$efficiency_certified, 6)
+    tab$optimal                <- signif(x$component_criterion_star, 7)
+    tab$efficiency_lower_bound <- round(x$efficiency_lower_bound, 6)
   }
   print(tab)
-  if (isTRUE(x$efficiency_weighted))
-    cat("  ('efficiency' is relative to the derived reference design; 'certified' is a",
-        "\n   guaranteed lower bound relative to the TRUE optimum: efficiency x the",
-        "\n   reference design's own bound, Becker & Yang Theorems 4.5 / 4.6)\n")
 
   if (!is.null(x$cross_efficiency)) {
     cat("\n  efficiency of each design under every component",
-        "\n  (rows: design;  columns: component;  1.000 = that component's own optimum)\n")
+        "\n  (rows: design;  columns: component;  lower bounds relative to each",
+        "\n   component's true optimum)\n")
     print(round(x$cross_efficiency, 3))
   }
 

@@ -153,7 +153,7 @@ test_that("the results tables have the shape the app renders", {
   s <- owea:::.uic_summary_table(r)
   expect_equal(rownames(s), c("m1", "m2", "m3"))
   # per-component values on the optimal_design() scale (0.4.0), not Psi
-  expect_true(all(c("alpha", "type", "criterion", "optimal", "efficiency")
+  expect_true(all(c("alpha", "type", "criterion", "optimal", "efficiency_lower_bound")
                   %in% names(s)))
   expect_equal(s$type, c("D", "D", "A"))
   expect_equal(s$criterion, signif(as.numeric(r$component_criterion), 7))
@@ -170,7 +170,7 @@ test_that("the results tables have the shape the app renders", {
                                         alpha = c(.4, .35, .25),
                                         efficiency = FALSE))
   expect_null(owea:::.uic_cross_table(rr))
-  expect_false("efficiency" %in% names(owea:::.uic_summary_table(rr)))
+  expect_false("efficiency_lower_bound" %in% names(owea:::.uic_summary_table(rr)))
 })
 
 test_that(".uic_verify_points counts the shared grid at the finest step", {
@@ -253,7 +253,7 @@ test_that("the compound branch reaches the solver and converges", {
 
     # the efficiency-weighted value is an average efficiency
     expect_true(cc$res$criterion > 0 && cc$res$criterion <= 1 + 1e-10)
-    expect_true(all(cc$res$efficiency <= 1 + 1e-10))
+    expect_true(all(cc$res$efficiency_lower_bound <= 1 + 1e-10))
     # ... and the cross-efficiency table is there for the results tab
     expect_equal(dim(cc$res$cross_efficiency), c(3L, 2L))
     # xi0 args are absent with no existing design
@@ -281,7 +281,7 @@ test_that("the compound branch passes an existing design through", {
     expect_equal(sum(cc$args$xi0_weights), 1)
     # the reference solves used the same stage structure, so efficiencies
     # cannot exceed 1
-    expect_true(all(cc$res$efficiency <= 1 + 1e-10))
+    expect_true(all(cc$res$efficiency_lower_bound <= 1 + 1e-10))
   })
 })
 
@@ -538,7 +538,7 @@ test_that("reusing Psi* gives the same design as recomputing it", {
     expect_equal(cached$criterion, fresh$criterion, tolerance = 1e-10)
     expect_equal(as.numeric(cached$weights), as.numeric(fresh$weights),
                  tolerance = 1e-8)
-    expect_equal(as.numeric(cached$efficiency), as.numeric(fresh$efficiency),
+    expect_equal(as.numeric(cached$efficiency_lower_bound), as.numeric(fresh$efficiency_lower_bound),
                  tolerance = 1e-10)
   })
 })

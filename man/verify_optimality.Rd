@@ -90,7 +90,7 @@ a list with \code{is_optimal} -- itself a list with \code{value}
   the \code{tol} used) -- plus \code{max_sensitivity} (the maximum directional
   derivative over the design space; \eqn{\le 0}, i.e. \eqn{\le}\code{tol}, at
   the optimum), \code{criterion} (the normalised Phi_p value),
-  \code{efficiency_bound} (a certified LOWER BOUND on the design's
+  \code{efficiency_lower_bound} (a guaranteed lower bound on the design's
   efficiency relative to the true optimum over the design space scanned,
   from the design alone: \eqn{1/(1 + \mathrm{max\_sensitivity}/v)} for D,
   \eqn{1 - \mathrm{max\_sensitivity}/\mathrm{criterion}} for A, \eqn{v} the

@@ -69,8 +69,8 @@ test_that("components may have different parameter dimensions", {
 test_that("efficiency weighting bounds Psi_alpha in [max(alpha), 1]", {
   al <- c(0.4, 0.35, 0.25)
   r  <- compound_design(cmp3, alpha = al, candidate_set = Xg)
-  expect_true(all(r$efficiency > 0), info = "efficiencies positive")
-  expect_true(all(r$efficiency <= 1 + 1e-10), info = "efficiencies at most 1")
+  expect_true(all(r$efficiency_lower_bound > 0), info = "efficiencies positive")
+  expect_true(all(r$efficiency_lower_bound <= 1 + 1e-10), info = "efficiencies at most 1")
   expect_gte(r$criterion, max(al) - 1e-10)
   expect_lte(r$criterion, 1 + 1e-10)
 })
@@ -141,7 +141,7 @@ test_that("raw and efficiency weighting give different designs", {
   rr <- compound_design(cmp3, alpha = al, candidate_set = Xg, efficiency = FALSE)
   # same components, different effective weights -> different efficiencies
   eff_raw <- rr$psi / re$psi_star
-  expect_false(isTRUE(all.equal(as.numeric(re$efficiency), as.numeric(eff_raw),
+  expect_false(isTRUE(all.equal(as.numeric(re$efficiency_lower_bound), as.numeric(eff_raw),
                                 tolerance = 1e-4)))
   expect_true(all(is.na(rr$psi_star)))
 })
@@ -162,7 +162,7 @@ test_that("an existing design is combined per model", {
   expect_true(r$converged)
   # efficiencies stay in (0, 1]: the reference solves used the same stage
   # structure, so the existing design cannot push them above 1
-  expect_true(all(r$efficiency > 0 & r$efficiency <= 1 + 1e-10))
+  expect_true(all(r$efficiency_lower_bound > 0 & r$efficiency_lower_bound <= 1 + 1e-10))
 })
 
 test_that("weights are normalised and recycled", {
@@ -199,7 +199,7 @@ test_that("compound_criterion scores an arbitrary design", {
                           candidate_set = Xg)
   expect_true(is.finite(a$criterion))
   expect_length(a$psi, 3L)
-  expect_true(all(a$efficiency > 0 & a$efficiency <= 1 + 1e-10))
+  expect_true(all(a$efficiency_lower_bound > 0 & a$efficiency_lower_bound <= 1 + 1e-10))
   expect_false(a$is_optimal)            # a factorial is not compound-optimal
   expect_gt(a$max_d, 0)
   expect_equal(unname(vapply(a$information, nrow, integer(1))), c(3L, 4L, 3L))
@@ -267,7 +267,7 @@ test_that("cross_efficiency is returned and has the right structure", {
   expect_equal(diag(ce[1:3, , drop = FALSE]), rep(1, 3),
                tolerance = 1e-6, ignore_attr = TRUE)
   # the last row is this design's efficiencies
-  expect_equal(as.numeric(ce[4, ]), as.numeric(r$efficiency), tolerance = 1e-10)
+  expect_equal(as.numeric(ce[4, ]), as.numeric(r$efficiency_lower_bound), tolerance = 1e-10)
   # reference designs are kept too
   expect_length(r$reference_designs, 3L)
   expect_true(all(vapply(r$reference_designs,
@@ -278,8 +278,9 @@ test_that("cross_efficiency rows match compound_criterion on those designs", {
   r <- compound_design(cmp3, alpha = c(0.4, 0.35, 0.25), candidate_set = Xg)
   for (j in seq_len(3)) {
     d <- r$reference_designs[[j]]
-    e <- compound_criterion(d$support, d$weights, cmp3,
-                            psi_star = r$psi_star)$efficiency
+    # both sides are lower bounds: the ratio times the reference designs' bounds
+    e <- compound_criterion(d$support, d$weights, cmp3, psi_star = r$psi_star,
+                            reference_bound = r$reference_bound)$efficiency_lower_bound
     expect_equal(as.numeric(r$cross_efficiency[j, ]), as.numeric(e),
                  tolerance = 1e-10)
   }
@@ -321,9 +322,9 @@ test_that("the exact design is bounded by the approximate optimum", {
                              candidate_set = Xg, seed = 1)
   # Psi_alpha is MAXIMISED, so the approximate optimum is an upper bound
   expect_lte(r$criterion, r$criterion_approx + 1e-10)
-  expect_gt(r$efficiency_exact, 0)
-  expect_lte(r$efficiency_exact, 1 + 1e-10)
-  expect_true(all(r$efficiency <= 1 + 1e-10))
+  expect_gt(r$efficiency_exact_lower_bound, 0)
+  expect_lte(r$efficiency_exact_lower_bound, 1 + 1e-10)
+  expect_true(all(r$efficiency_lower_bound <= 1 + 1e-10))
 })
 
 test_that("the exact criterion agrees with compound_criterion()", {
@@ -337,9 +338,9 @@ test_that("the exact criterion agrees with compound_criterion()", {
 
 test_that("a larger sample size gets closer to the approximate optimum", {
   e1 <- compound_exact_design(n = 10, components = cmp3, alpha = c(0.4, 0.35, 0.25),
-                              candidate_set = Xg, seed = 1)$efficiency_exact
+                              candidate_set = Xg, seed = 1)$efficiency_exact_lower_bound
   e2 <- compound_exact_design(n = 200, components = cmp3, alpha = c(0.4, 0.35, 0.25),
-                              candidate_set = Xg, seed = 1)$efficiency_exact
+                              candidate_set = Xg, seed = 1)$efficiency_exact_lower_bound
   expect_gt(e2, e1)
   expect_gt(e2, 0.99)
 })
@@ -351,7 +352,7 @@ test_that("compound_exact_design carries the cross-efficiency table", {
   expect_equal(dim(ce), c(4L, 3L))
   expect_equal(rownames(ce)[4], "THIS DESIGN")
   # the last row is THIS exact design, not the approximate one
-  expect_equal(as.numeric(ce[4, ]), as.numeric(r$efficiency), tolerance = 1e-10)
+  expect_equal(as.numeric(ce[4, ]), as.numeric(r$efficiency_lower_bound), tolerance = 1e-10)
   expect_output(print(r), "Exact compound optimal design")
   expect_output(print(r), "efficiency of each design under every component")
 })
@@ -487,11 +488,12 @@ test_that("per-component criterion values are reported on the optimal_design() s
                            psi_star = r$psi_star, candidate_set = Xg)
   expect_equal(unname(cc$component_criterion), unname(r$component_criterion),
                tolerance = 1e-8)
-  # the efficiencies are unchanged by the change of scale
-  expect_equal(unname(r$efficiency[1]),
+  # the reported efficiency is the ratio to the reference times the reference's
+  # certified bound; dividing the bound out recovers the ratio on either scale
+  expect_equal(unname(r$efficiency_lower_bound[1] / r$reference_bound[1]),
                exp(r$component_criterion_star[[1]] - r$component_criterion[[1]]),
-               tolerance = 1e-10)
-  expect_equal(unname(r$efficiency[3]),
+               tolerance = 1e-8)
+  expect_equal(unname(r$efficiency_lower_bound[3] / r$reference_bound[3]),
                r$component_criterion_star[[3]] / r$component_criterion[[3]],
-               tolerance = 1e-10)
+               tolerance = 1e-8)
 })

@@ -48,16 +48,20 @@
 #'   \code{counts} (integers summing to \code{n}), \code{weights}
 #'   (\code{counts / n}), \code{criterion} (the compound value of the exact
 #'   design), \code{criterion_approx} (the approximate optimum it is measured
-#'   against), \code{efficiency_exact} (their ratio, in \eqn{(0,1]}),
+#'   against), \code{efficiency_exact_lower_bound} (a guaranteed lower bound
+#'   on the exact design's efficiency relative to the TRUE compound optimum:
+#'   their ratio times the approximate design's own bound
+#'   \code{criterion_bound}),
 #'   \code{psi}, \code{psi_star}, \code{component_criterion} and
 #'   \code{component_criterion_star} (the per-component values on the scale
 #'   \code{\link{optimal_design}} reports, see \code{\link{compound_design}}),
-#'   \code{efficiency} (per component),
+#'   \code{efficiency_lower_bound} (per component, relative to the TRUE
+#'   component optimum),
 #'   \code{cross_efficiency}, \code{alpha}, \code{at}, \code{information},
 #'   \code{n}, \code{exchanges}, \code{n_candidates} (the size of the candidate
 #'   set the exchanges searched) and \code{approx} (the full approximate
 #'   result).
-#' @details The reported \code{efficiency_exact} is a LOWER bound on the exact
+#' @details The reported \code{efficiency_exact_lower_bound} is a LOWER bound on the exact
 #'   design's efficiency: it compares against the approximate optimum, which is
 #'   at least as good as any exact design, so the true efficiency is at least
 #'   this value.
@@ -279,24 +283,27 @@ compound_exact_design <- function(n, components, alpha = NULL,
     rows[[J + 1L]] <- as.numeric(eff)
     cross <- do.call(rbind, rows)
     dimnames(cross) <- list(c(paste("optimal for", nms), "THIS DESIGN"), nms)
+    # lower bounds relative to each component's TRUE optimum
+    rb <- as.numeric(ap$reference_bound)
+    cross <- sweep(pmin(cross, 1), 2, ifelse(is.finite(rb), rb, 1), `*`)
   }
 
   out <- list(support = support, counts = counts, weights = w,
               criterion = crit_exact,
               criterion_approx = ap$criterion,
-              efficiency_exact = crit_exact / ap$criterion,
+              # relative to the TRUE compound optimum: the ratio to the approximate
+              # compound design times that design's certified bound (eq. 27)
+              efficiency_exact_lower_bound = .cmp_certify(crit_exact / ap$criterion,
+                                                          ap$criterion_bound),
               psi = stats::setNames(as.numeric(psi), nms),
               psi_star = ap$psi_star,
               # the same values on the scale optimal_design() reports
               component_criterion      = stats::setNames(.cmp_single_scale(psi, ap$p), nms),
               component_criterion_star = stats::setNames(.cmp_single_scale(ap$psi_star, ap$p), nms),
-              efficiency = stats::setNames(as.numeric(eff), nms),
-              # certified (Becker & Yang, Thm 4.5 / 4.6, eq. 27): times the
-              # reference designs' / the approximate compound design's own bounds
+              # ONE efficiency per component, relative to the TRUE component
+              # optimum (ratio x the reference design's bound, Thm 4.5 / 4.6)
+              efficiency_lower_bound = stats::setNames(.cmp_certify(eff, ap$reference_bound), nms),
               reference_bound = ap$reference_bound,
-              efficiency_certified = stats::setNames(
-                pmin(as.numeric(eff), 1) * as.numeric(ap$reference_bound), nms),
-              efficiency_exact_certified = min(crit_exact / ap$criterion, 1) * ap$criterion_bound,
               cross_efficiency = cross,
               alpha = ap$alpha, at = ap$at,
               p = ap$p,
@@ -322,11 +329,8 @@ print.compound_exact_design <- function(x, ...) {
   cat(sprintf("  criterion  : Psi_alpha = %.8f%s\n", x$criterion,
               if (isTRUE(x$efficiency_weighted))
                 "   (weighted average efficiency, in (0,1])" else ""))
-  cat(sprintf("  efficiency : %.4f%% of the approximate compound design (%.8f)\n",
-              100 * x$efficiency_exact, x$criterion_approx))
-  if (is.finite(x$efficiency_exact_certified))
-    cat(sprintf("  certified  : >= %.4f%% of the TRUE compound optimum (gap bound)\n",
-                100 * x$efficiency_exact_certified))
+  cat(sprintf("  efficiency : >= %.4f%% of the compound optimum   (approximate compound design: %.8f)\n",
+              100 * x$efficiency_exact_lower_bound, x$criterion_approx))
   cat(sprintf("  exchanges  : %d accepted\n", x$exchanges))
   cat("\n  per-component criterion values, on the scale optimal_design() reports",
       "\n  (D: log det Sigma / v;  A: tr(Sigma) / v;  smaller is better)\n")
@@ -336,14 +340,14 @@ print.compound_exact_design <- function(x, ...) {
                     stringsAsFactors = FALSE)
   if (isTRUE(x$efficiency_weighted)) {
     tab$optimal    <- signif(as.numeric(x$component_criterion_star), 7)
-    tab$efficiency <- round(as.numeric(x$efficiency), 6)
-    tab$certified  <- round(as.numeric(x$efficiency_certified), 6)
+    tab$efficiency_lower_bound <- round(as.numeric(x$efficiency_lower_bound), 6)
   }
   rownames(tab) <- names(x$psi)
   print(tab)
   if (!is.null(x$cross_efficiency)) {
     cat("\n  efficiency of each design under every component",
-        "\n  (rows: design;  columns: component;  1.000 = that component's own optimum)\n")
+        "\n  (rows: design;  columns: component;  lower bounds relative to each",
+        "\n   component's true optimum)\n")
     print(round(x$cross_efficiency, 3))
   }
   cat("\n  design (support points and runs):\n")

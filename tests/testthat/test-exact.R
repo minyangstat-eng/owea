@@ -11,8 +11,8 @@ test_that("linear regression D-optimal: even n splits evenly, efficiency 1", {
   expect_lt(abs(sp[1] + 1), 1e-6)
   expect_lt(abs(sp[2] - 1), 1e-6)
   expect_equal(sort(res$counts), c(5L, 5L))
-  expect_gt(res$efficiency, 1 - 1e-6)         # exact optimum reached
-  expect_lte(res$efficiency, 1 + 1e-8)
+  expect_gt(res$efficiency_lower_bound, 1 - 1e-6)         # exact optimum reached
+  expect_lte(res$efficiency_lower_bound, 1 + 1e-8)
 })
 
 test_that("solver = 'MA' drives the approximate step of exact_design", {
@@ -23,8 +23,8 @@ test_that("solver = 'MA' drives the approximate step of exact_design", {
   r_ow <- suppressWarnings(do.call(exact_design, c(args, list(solver = "owea"))))
   expect_equal(sum(r_ma$counts), 12L)
   expect_true(all(r_ma$counts >= 1L))
-  expect_gt(r_ma$efficiency, 0)
-  expect_lte(r_ma$efficiency, 1 + 1e-8)
+  expect_gt(r_ma$efficiency_lower_bound, 0)
+  expect_lte(r_ma$efficiency_lower_bound, 1 + 1e-8)
   # the reference approximate optimum matches the OWEA one (same criterion).
   expect_lt(abs(r_ma$criterion_approx - r_ow$criterion_approx), 1e-5)
   # "multiplicative" alias is accepted.
@@ -40,17 +40,17 @@ test_that("bi-exponential D-optimal: counts sum to n, efficiency in (0,1]", {
     expect_equal(sum(res$counts), N)
     expect_true(all(res$counts >= 1L))
     expect_true(is.finite(res$criterion))
-    expect_gt(res$efficiency, 0)
-    expect_lte(res$efficiency, 1 + 1e-8)
+    expect_gt(res$efficiency_lower_bound, 0)
+    expect_lte(res$efficiency_lower_bound, 1 + 1e-8)
   }
 })
 
 test_that("efficiency improves (weakly) as n grows", {
   X <- matrix(seq(0, 3, length.out = 301), ncol = 1)
   e_small <- exact_design(n = 8L,  candidate_set = X, theta = theta_biexp,
-                          info_matrix = biexp_info, p = 0, seed = 7)$efficiency
+                          info_matrix = biexp_info, p = 0, seed = 7)$efficiency_lower_bound
   e_large <- exact_design(n = 200L, candidate_set = X, theta = theta_biexp,
-                          info_matrix = biexp_info, p = 0, seed = 7)$efficiency
+                          info_matrix = biexp_info, p = 0, seed = 7)$efficiency_lower_bound
   expect_gt(e_large, e_small - 1e-6)
   expect_gt(e_large, 0.98)                     # large n -> near the optimum
 })
@@ -61,8 +61,8 @@ test_that("A-optimal subset path works", {
                       info_matrix = biexp_info, p = 1, subset = c(2, 4),
                       seed = 3)
   expect_equal(sum(res$counts), 30L)
-  expect_gt(res$efficiency, 0)
-  expect_lte(res$efficiency, 1 + 1e-8)
+  expect_gt(res$efficiency_lower_bound, 0)
+  expect_lte(res$efficiency_lower_bound, 1 + 1e-8)
 })
 
 test_that("multistage (existing design) exact allocation of the new stage", {
@@ -73,7 +73,7 @@ test_that("multistage (existing design) exact allocation of the new stage", {
                       xi0_weights = rep(0.25, 4), n0 = 40, n1 = 80, seed = 1)
   expect_equal(sum(res$counts), 40L)
   expect_true(is.finite(res$criterion))
-  expect_lte(res$efficiency, 1 + 1e-8)
+  expect_lte(res$efficiency_lower_bound, 1 + 1e-8)
 })
 
 # The app's Design tab explains the two criterion values with this identity;

@@ -387,7 +387,7 @@ test_that(".ui_efficiency is 1 under the same criterion and < 1 under the other"
   res <- suppressWarnings(do.call(optimal_design,
                                   owea:::.ui_solver_args(sp, "optimal", p = 0)))
   same <- suppressWarnings(owea:::.ui_efficiency(res, sp, p_new = 0L))
-  expect_equal(same$efficiency, 1, tolerance = 1e-4)
+  expect_equal(same$efficiency_lower_bound, 1, tolerance = 1e-4)
   # the design's own criterion is evaluated grid-free (criterion_only), so the
   # only grid search is the reference solve with the ORIGINAL step_sequence
   expect_identical(same$max_sensitivity, NA_real_)
@@ -400,7 +400,7 @@ test_that(".ui_efficiency is 1 under the same criterion and < 1 under the other"
                                  owea:::.ui_solver_args(sp2, "optimal", p = 0)))
   other <- suppressWarnings(owea:::.ui_efficiency(r2, sp2, p_new = 1L,
                                                   subset_new = 3L))
-  expect_true(other$efficiency > 0 && other$efficiency < 1)
+  expect_true(other$efficiency_lower_bound > 0 && other$efficiency_lower_bound < 1)
 })
 
 test_that("plot_design runs for 1, 2 and 3 covariates without error", {

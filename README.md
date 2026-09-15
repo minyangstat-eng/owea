@@ -383,21 +383,21 @@ Always check `res$converged` / `res$max_d`. The package also warns you:
   candidate columns, so it is only feasible for candidate sets with a handful
   of columns; for candidate sets with many columns use `init_method = "MA"`
   with a larger `max_iter` and `engine = "active-set"` instead.
-- **Certified efficiency bounds** — a design that stops at `max_d > eps0` is
-  not exactly optimal, and an efficiency measured against such a design could
-  be overstated. Every result therefore carries `efficiency_bound`, a
-  guaranteed lower bound on its efficiency relative to the *true* optimum over
-  the design space it was checked on, computed from the design alone
-  (Theorems 4.5 and 4.6 of Becker & Yang, *Post Hoc Control Group Selection via
-  Constrained Optimal Design*): `1 / (1 + max_d / v)` for D-optimality and
-  `1 - max_d / criterion` for A-optimality, with `v` the number of parameters
-  of interest. It equals 1 at a certified optimum. Every efficiency the package
-  reports against a derived reference design — `exact_design()`'s
-  `efficiency_certified`, `compound_design()`'s `efficiency_certified` and
-  `cross_efficiency_certified`, `verify_optimality()`'s `efficiency_bound`, the
-  app's efficiency panels — is multiplied by the reference's bound, so it stays
-  valid even when the reference solve stopped short. Efficiencies are printed
-  with four decimals (e.g. `99.9996%`).
+- **Efficiency lower bounds** — a design that stops at `max_d > eps0` is not
+  exactly optimal, and an efficiency measured against such a design could be
+  overstated. So the package reports one number, `efficiency_lower_bound`: a
+  guaranteed lower bound on the efficiency relative to the *true* optimum over
+  the design space checked. For a single design it is computed from the design
+  alone (Theorems 4.5 and 4.6 of Becker & Yang, *Post Hoc Control Group
+  Selection via Constrained Optimal Design*): `1 / (1 + max_d / v)` for
+  D-optimality and `1 - max_d / criterion` for A-optimality, with `v` the number
+  of parameters of interest; it equals 1 at a certified optimum.
+  `optimal_design()` and `verify_optimality()` return it directly. Where a
+  design is compared with a derived reference design — `exact_design()`,
+  `compound_design()`'s per-component values and cross-efficiency table, the
+  app's efficiency panels — the ratio is multiplied by the reference's own
+  bound, so it stays valid even when the reference solve stopped short.
+  Bounds are printed with four decimals (e.g. `efficiency >= 99.9996%`).
 
 ---
 
@@ -595,8 +595,7 @@ behind `solver = "MA"`.)
 
 Becker, E. & Yang, M. Post Hoc Control Group Selection via Constrained Optimal
 Design. Manuscript. (Theorems 4.5 and 4.6: the computable bounds on the
-D- and A-optimality gaps behind `efficiency_bound` and the certified
-efficiencies.)
+D- and A-optimality gaps behind every reported `efficiency_lower_bound`.)
 
 ---
 

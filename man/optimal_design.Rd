@@ -226,8 +226,8 @@ list with \code{support}, \code{weights}, \code{criterion},
   construction, the model evaluation over it and any \code{check_global}
   verification included, so it exceeds \code{sum(times)} --- several-fold on a
   large grid, where building the candidate set dominates the solve),
-  \code{box_lo}, \code{box_hi}, \code{p}, \code{efficiency_bound} (a
-  certified LOWER BOUND on the design's efficiency relative to the true
+  \code{box_lo}, \code{box_hi}, \code{p}, \code{efficiency_lower_bound} (a
+  guaranteed lower bound on the design's efficiency relative to the TRUE
   optimum over the design space it was checked on, computed from the design
   alone: \eqn{1/(1 + \mathrm{max\_d}/v)} for D and
   \eqn{1 - \mathrm{max\_d}/\mathrm{criterion}} for A, with \eqn{v} the number
@@ -237,8 +237,8 @@ list with \code{support}, \code{weights}, \code{criterion},
   is \code{FALSE}), and
   \code{global_max_d} / \code{global_check} (the whole-box equivalence-theorem
   maximum and whether it is \eqn{\le} \code{eps0}; \code{NA} when not checked;
-  when the whole-box check runs, \code{efficiency_bound} is recomputed from
-  \code{global_max_d}).
+  when the whole-box check runs, \code{efficiency_lower_bound} is recomputed
+  from \code{global_max_d}).
   For the multistage (\code{design_box}) path a \code{converged} design is
   optimal only over the refined neighbourhood grids unless
   \code{check_global = TRUE} certifies it over the whole box.

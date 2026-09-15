@@ -228,9 +228,8 @@
                   stringsAsFactors = FALSE)
   if (isTRUE(res$efficiency_weighted)) {
     d$optimal    <- signif(as.numeric(res$component_criterion_star), 7)
-    d$efficiency <- round(as.numeric(res$efficiency), 6)
-    # guaranteed lower bound vs the TRUE optimum (Becker & Yang, Thm 4.5 / 4.6)
-    d$certified  <- round(as.numeric(res$efficiency_certified), 6)
+    # a guaranteed lower bound vs the TRUE optimum (Becker & Yang, Thm 4.5 / 4.6)
+    d$efficiency_lower_bound <- round(as.numeric(res$efficiency_lower_bound), 6)
   }
   rownames(d) <- names(res$psi)
   d

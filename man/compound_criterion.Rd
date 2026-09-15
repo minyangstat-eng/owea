@@ -29,7 +29,8 @@ a design result.}
 \code{psi_star} came from (one per component); taken from a
 \code{compound_design} object when one is passed as \code{support}, and
 computed alongside \code{psi_star} when the reference solves are run here.
-Multiplies the efficiencies into \code{efficiency_certified}.}
+The reported \code{efficiency_lower_bound} is the ratio to the reference times
+this bound; without it the plain ratio is reported.}
 
 \item{psi_star}{reference values \eqn{\Psi_j^{*}}. Required for
 \code{efficiency = TRUE} unless a design space is supplied, over which they are
@@ -62,7 +63,7 @@ coarsen \code{step}, raise \code{max_points}, or set
 
 \item{criterion_only}{if \code{TRUE}, skip the sensitivity scan entirely: no
 grid is built and the design is scored on its own support, so the result carries
-\code{criterion}, \code{psi} and \code{efficiency} but none of
+\code{criterion}, \code{psi} and \code{efficiency_lower_bound} but none of
 \code{sensitivity}, \code{max_d}, \code{maximiser} or \code{is_optimal}. Needs
 \code{psi_star} (or \code{efficiency = FALSE}), since without a design space the
 reference values cannot be computed.}
@@ -73,10 +74,10 @@ reference values cannot be computed.}
 A list with \code{criterion} (\eqn{\Psi_\alpha}), \code{psi} (per-component
 \eqn{\Psi_j}), \code{component_criterion} and \code{component_criterion_star}
 (the same values on the scale \code{\link{optimal_design}} reports, see
-\code{\link{compound_design}}), \code{efficiency}, \code{reference_bound} and
-\code{efficiency_certified} (the efficiencies times the reference designs'
-certified bounds: guaranteed lower bounds relative to the TRUE component
-optima; \code{NA} when no bounds are available), \code{psi_star},
+\code{\link{compound_design}}), \code{efficiency_lower_bound} (per component:
+the ratio to the reference times the reference design's certified bound, a guaranteed
+lower bound relative to the TRUE component optimum; the plain ratio when no
+bound is available), \code{reference_bound}, \code{psi_star},
 \code{alpha}, \code{at},
 \code{information} (per-component \eqn{M_j}) and, when a design space was
 supplied, \code{sensitivity}, \code{max_d}, \code{maximiser},

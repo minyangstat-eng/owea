@@ -48,22 +48,26 @@
   design step now shows a note that the results page offers a simulation study
   for exact designs, so users know the design can be checked by simulating
   responses and re-estimating the parameters.
-* Certified efficiency bounds. A design returned at `max_d > eps0` is not exactly
-  optimal, so an efficiency measured against it could be overstated. Every
-  `optimal_design()` and `verify_optimality()` result now carries
-  `efficiency_bound`, a guaranteed lower bound on the design's efficiency
-  relative to the TRUE optimum over the design space checked, computed from the
-  design alone: `1 / (1 + max_d / v)` for D and `1 - max_d / criterion` for A
-  (Theorems 4.5 and 4.6 of Becker & Yang, *Post Hoc Control Group Selection via
-  Constrained Optimal Design*; owea's `max_d` is their optimality gap). Every
-  efficiency reported against a derived reference design is multiplied by the
-  reference's bound: `exact_design()` gains `efficiency_certified` and
-  `approx$efficiency_bound`; `compound_design()` gains `reference_bound`,
-  `efficiency_certified`, `criterion_bound` and `cross_efficiency_certified`
-  (plus a `reference_bound` argument to pair with a supplied `psi_star`);
-  `compound_criterion()` and `compound_exact_design()` gain the matching fields;
-  the app's efficiency displays show the certified values. Efficiencies are now
-  printed with four decimals (e.g. 99.9996%).
+* Efficiencies are now reported as guaranteed lower bounds relative to the TRUE
+  optimum, in one field named `efficiency_lower_bound` (the former `efficiency`
+  fields of `exact_design()`, `compound_design()`, `compound_criterion()` and
+  `compound_exact_design()` are renamed; `efficiency_exact` becomes
+  `efficiency_exact_lower_bound`). A design returned at `max_d > eps0` is not
+  exactly optimal, so an efficiency measured against it could be overstated.
+  `optimal_design()` and `verify_optimality()` gain `efficiency_lower_bound`,
+  computed from the design alone: `1 / (1 + max_d / v)` for D and
+  `1 - max_d / criterion` for A (Theorems 4.5 and 4.6 of Becker & Yang, *Post
+  Hoc Control Group Selection via Constrained Optimal Design*; owea's `max_d` is
+  their optimality gap). `exact_design()`'s value is the ratio to the
+  approximate design times that design's bound (`approx$efficiency_bound`);
+  `compound_design()`'s per-component values and `cross_efficiency` are the
+  ratios to the reference designs times their bounds (`reference_bound`; also
+  accepted as an argument alongside a supplied `psi_star`), and
+  `criterion_bound` is the compound design's own bound. The app shows these
+  values. Bounds are printed with four decimals (e.g. `efficiency >= 99.9996%`).
+* App: the model step and the compound objectives step remind users that models
+  or quantities of interest beyond the built-in ones can be used in the R
+  package directly through `info_vector` / `info_matrix` and `wb` / `grad_g`.
 
 # owea 0.3.0
 

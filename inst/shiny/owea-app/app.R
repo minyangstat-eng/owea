@@ -93,6 +93,16 @@ ui <- fluidPage(
     tabPanelBody(
       "model",
       h4("Step: the model"),
+      div(class = "alert alert-info",
+          tags$b("Not seeing your model? "),
+          "The app covers the built-in model families and terms below, with ",
+          "either all parameters or a subset of them as the parameters of interest. ",
+          "Any other model, or another quantity of interest, can be handled in the ",
+          "R package directly: pass your own per-point information as ",
+          tags$code("info_vector"), " or ", tags$code("info_matrix"),
+          ", and the parameters of interest as a matrix ", tags$code("wb"),
+          " or a gradient function ", tags$code("grad_g"), ", to ",
+          tags$code("optimal_design()"), " -- see the package README."),
       fluidRow(
         column(
           5,
@@ -286,6 +296,15 @@ ui <- fluidPage(
       helpText("Each objective is a model plus a criterion. They may be ",
                "entirely different models — different families, different ",
                "terms, different numbers of parameters."),
+      div(class = "alert alert-info",
+          tags$b("Not seeing your model? "),
+          "The app offers the built-in model families, with all parameters or a ",
+          "subset as the parameters of interest. Any other model or quantity of ",
+          "interest can be used in the R package directly: each component of ",
+          tags$code("compound_design()"), " accepts its own ",
+          tags$code("info_vector"), " or ", tags$code("info_matrix"),
+          " and a matrix ", tags$code("wb"), " or function ", tags$code("grad_g"),
+          " -- see the package README."),
       numericInput("ncomp", "How many objectives?", value = 2, min = 1,
                    max = 4, step = 1),
       uiOutput("cmp_models_ui"),
@@ -985,14 +1004,12 @@ server <- function(input, output, session) {
       tags$ul(lapply(unique(.friendly_warn(c$warns)), tags$li)) else NULL
     # certified efficiency bound (Becker & Yang, Theorems 4.5 / 4.6): valid
     # even when the design did not fully converge
-    eb <- if (c$exact) c$res$approx$efficiency_bound else c$res$efficiency_bound
+    eb <- if (c$exact) NULL else c$res$efficiency_lower_bound
     cert <- if (!is.null(eb) && is.finite(eb))
       tags$p(tags$small(sprintf(paste0(
-        "Certified bound: %s is at least %.4f%% efficient relative to the true ",
-        "optimum over the searched grid (computed from its max sensitivity; ",
-        "valid even when convergence was not reached)."),
-        if (c$exact) "the approximate reference design" else "this design",
-        100 * eb)))
+        "Efficiency: at least %.4f%% of the optimum over the searched grid ",
+        "(a guaranteed lower bound computed from the max sensitivity, valid even ",
+        "when convergence was not reached)."), 100 * eb)))
     div(class = if (conv) "alert alert-success" else "alert alert-warning",
         tags$b(msg), cert, extra)
   })
@@ -1008,10 +1025,8 @@ server <- function(input, output, session) {
   output$design_tbl <- DT::renderDT({
     c <- computed(); req(is.null(c$error)); res <- c$res
     cap <- if (c$exact)
-      sprintf(paste0("n = %d | criterion (per-sample) = %.5f | criterion (total) = %.5f | ",
-                     "certified efficiency >= %.4f%% (%.4f%% of the approximate design)"),
-              res$n, res$criterion, res$criterion_total,
-              100 * res$efficiency_certified, 100 * res$efficiency)
+      sprintf("n = %d | criterion (per-sample) = %.5f | criterion (total) = %.5f | efficiency >= %.4f%%",
+              res$n, res$criterion, res$criterion_total, 100 * res$efficiency_lower_bound)
     else
       sprintf("criterion = %.5f | max sensitivity = %.2e (0 at optimum)",
               res$criterion, res$max_d)
@@ -1138,7 +1153,7 @@ server <- function(input, output, session) {
       return(div(class = "alert alert-danger", tags$b("Could not compute: "),
                  conditionMessage(e)))
     lab <- names(CRITERIA)[match(as.character(e$p), CRITERIA)]
-    if (!is.finite(e$efficiency))
+    if (!is.finite(e$efficiency_lower_bound))
       return(div(class = "alert alert-warning",
                  sprintf(paste0("The design is not estimable under %s (the ",
                                 "criterion is infinite) — usually because those ",
@@ -1146,13 +1161,12 @@ server <- function(input, output, session) {
                          lab)))
     tagList(br(), div(
       class = "alert alert-success",
-      tags$p(tags$b(sprintf("Efficiency under %s: at least %.4f%% (certified)", lab,
-                            100 * e$efficiency_certified))),
-      tags$p(sprintf(paste0("criterion of this design = %.6f; reference design's ",
-                            "criterion = %.6f (%.4f%% relative to that reference, ",
-                            "which is itself certified at least %.4f%% efficient)"),
-                     e$crit_design, e$crit_ref, 100 * min(e$efficiency, 1),
-                     100 * e$reference_bound)),
+      tags$p(tags$b(sprintf("Efficiency under %s: at least %.4f%%", lab,
+                            100 * e$efficiency_lower_bound))),
+      tags$p(sprintf("criterion of this design = %.6f; optimal criterion = %.6f",
+                     e$crit_design, e$crit_ref)),
+      tags$p(tags$small("The efficiency is a guaranteed lower bound relative to the ",
+                        "true optimum for this criterion.")),
       if (!e$converged)
         tags$p(tags$small("The reference optimisation did not fully converge, ",
                           "so this is approximate.")),
@@ -1251,11 +1265,11 @@ server <- function(input, output, session) {
       tags$p(tags$b("Criterion (this design): "), sprintf("%.6f", v$criterion)),
       tags$p(tags$small(sprintf("Optimal design criterion (for reference): %.6f",
                                 vr$opt_crit))),
-      if (!is.null(v$efficiency_bound) && is.finite(v$efficiency_bound))
-        tags$p(tags$b("Certified efficiency: "),
+      if (!is.null(v$efficiency_lower_bound) && is.finite(v$efficiency_lower_bound))
+        tags$p(tags$b("Efficiency: "),
                sprintf(paste0("at least %.4f%% of the true optimum over this design ",
-                              "space (gap bound from the max sensitivity)"),
-                       100 * v$efficiency_bound)))
+                              "space (a guaranteed lower bound from the max sensitivity)"),
+                       100 * v$efficiency_lower_bound)))
     if (is.na(v$is_optimal$value))                  # criterion-only run
       return(tagList(br(), warn_ui,
         div(class = "alert alert-info", crit_ui,
@@ -1895,13 +1909,12 @@ server <- function(input, output, session) {
     if (c2$exact)
       return(div(class = "alert alert-success",
         tags$b("Exact compound design found. "),
-        sprintf(paste0("%s = %.6f, %.4f%% of the approximate compound design ",
-                       "(%.6f); certified at least %.4f%% of the true compound ",
-                       "optimum. %d exchange(s) accepted."),
+        sprintf(paste0("%s = %.6f (approximate compound design: %.6f); efficiency ",
+                       "at least %.4f%% of the compound optimum. %d exchange(s) accepted."),
                 if (isTRUE(r$efficiency_weighted))
                   "Weighted average efficiency" else "Weighted criterion",
-                r$criterion, 100 * r$efficiency_exact, r$criterion_approx,
-                100 * r$efficiency_exact_certified, r$exchanges),
+                r$criterion, r$criterion_approx, 100 * r$efficiency_exact_lower_bound,
+                r$exchanges),
         if (length(c2$warns))
           tags$ul(lapply(unique(c2$warns),
                          function(w) tags$li(.friendly_warn(w)))),
@@ -1909,13 +1922,12 @@ server <- function(input, output, session) {
     ok <- isTRUE(r$converged)
     div(class = if (ok) "alert alert-success" else "alert alert-warning",
         tags$b(if (ok) "Compound design found. " else "Did not converge. "),
-        sprintf(paste0("%s = %.6f%s  (max sensitivity %.2e; certified at least ",
-                       "%.4f%% of the compound optimum)."),
+        sprintf("%s = %.6f%s  (max sensitivity %.2e).",
                 if (isTRUE(r$efficiency_weighted))
                   "Weighted average efficiency" else "Weighted criterion",
                 r$criterion,
                 if (isTRUE(r$efficiency_weighted)) " out of 1" else "",
-                r$max_d, 100 * r$criterion_bound),
+                r$max_d),
         if (length(c2$warns))
           tags$ul(lapply(unique(c2$warns), function(w) tags$li(.friendly_warn(w)))),
         reuse)
@@ -1963,11 +1975,9 @@ server <- function(input, output, session) {
         if (isTRUE(c2$res$efficiency_weighted))
           tags$span("; 'optimal' is the best value that objective could achieve ",
                     "on its own, and 'efficiency' is the fraction of that best this ",
-                    "one design delivers (D: exp(optimal - criterion); A: optimal / ",
-                    "criterion). 'certified' multiplies that by the reference ",
-                    "design's own guaranteed bound, so it is a lower bound on the ",
-                    "efficiency relative to the TRUE optimum even if the reference ",
-                    "solve stopped short of it (Becker & Yang, Theorems 4.5 and 4.6).")
+                    "one design delivers, reported as a guaranteed lower bound ",
+                    "relative to the true optimum (it accounts for the reference ",
+                    "solve possibly stopping short of the optimum).")
         else tags$span("."))
   })
   output$cmp_summary_tbl <- renderTable({
@@ -2102,7 +2112,7 @@ server <- function(input, output, session) {
     if (inherits(v, "error"))
       return(div(class = "alert alert-danger", conditionMessage(v)))
     c2 <- cmp_computed()
-    eff <- v$efficiency
+    eff <- v$efficiency_lower_bound
     # the headline value, shared by both kinds of run
     head_ui <- tagList(
       tags$b(sprintf("%s = %.6f. ",
