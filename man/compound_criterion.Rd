@@ -4,7 +4,8 @@
 \title{Compound criterion value of a given design}
 \usage{
 compound_criterion(support, weights = NULL, components,
-                   alpha = NULL, psi_star = NULL, efficiency = TRUE,
+                   alpha = NULL, psi_star = NULL, reference_bound = NULL,
+                   efficiency = TRUE,
                    candidate_set = NULL, design_box = NULL, step = NULL,
                    factor_levels = NULL,
                    xi0_points = NULL, xi0_weights = numeric(0),
@@ -23,6 +24,12 @@ a design result.}
 
 \item{alpha}{component weights; default equal, or reused from a
 \code{"compound_design"} result.}
+
+\item{reference_bound}{optional certified efficiency bounds of the designs the
+\code{psi_star} came from (one per component); taken from a
+\code{compound_design} object when one is passed as \code{support}, and
+computed alongside \code{psi_star} when the reference solves are run here.
+Multiplies the efficiencies into \code{efficiency_certified}.}
 
 \item{psi_star}{reference values \eqn{\Psi_j^{*}}. Required for
 \code{efficiency = TRUE} unless a design space is supplied, over which they are
@@ -66,7 +73,10 @@ reference values cannot be computed.}
 A list with \code{criterion} (\eqn{\Psi_\alpha}), \code{psi} (per-component
 \eqn{\Psi_j}), \code{component_criterion} and \code{component_criterion_star}
 (the same values on the scale \code{\link{optimal_design}} reports, see
-\code{\link{compound_design}}), \code{efficiency}, \code{psi_star},
+\code{\link{compound_design}}), \code{efficiency}, \code{reference_bound} and
+\code{efficiency_certified} (the efficiencies times the reference designs'
+certified bounds: guaranteed lower bounds relative to the TRUE component
+optima; \code{NA} when no bounds are available), \code{psi_star},
 \code{alpha}, \code{at},
 \code{information} (per-component \eqn{M_j}) and, when a design space was
 supplied, \code{sensitivity}, \code{max_d}, \code{maximiser},

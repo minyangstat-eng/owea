@@ -123,13 +123,19 @@
 #'   Phi_p value of the TOTAL information matrix -- the criterion for all
 #'   \code{n} runs at once), \code{information} (the counts-based combined TOTAL
 #'   Fisher information \eqn{\sum_i n_i M(x_i)}, plus \eqn{n_0 I_{\xi_0}} when an
-#'   existing design is supplied), \code{efficiency} (a guaranteed LOWER
-#'   BOUND on the exact design's efficiency, in \eqn{(0, 1]}: it is measured
-#'   against the approximate optimum, which is at least as good as any exact
-#'   design, so the true efficiency is at least this), \code{criterion_approx},
-#'   \code{approx}
-#'   (the approximate design used, including its \code{global_max_d} /
-#'   \code{global_check} when \code{check_global = TRUE}), \code{p},
+#'   existing design is supplied), \code{efficiency} (the exact design's
+#'   efficiency relative to the approximate design solved first, in
+#'   \eqn{(0, 1]}), \code{efficiency_certified} (a guaranteed LOWER BOUND on the
+#'   exact design's efficiency relative to the TRUE optimum: \code{efficiency}
+#'   times the approximate design's own certified bound
+#'   \code{approx$efficiency_bound} --- Becker and Yang, \emph{Post Hoc Control
+#'   Group Selection via Constrained Optimal Design}, eq. (27), from their
+#'   Theorems 4.5 (D) and 4.6 (A); this is the value to report, since it stays
+#'   valid when the approximate reference stopped short of the optimum),
+#'   \code{criterion_approx}, \code{approx}
+#'   (the approximate design used, including its \code{efficiency_bound} and its
+#'   \code{global_max_d} / \code{global_check} when \code{check_global = TRUE}),
+#'   \code{p},
 #'   \code{candidate_set}, \code{n_exchange_accepted}, \code{converged}
 #'   (inherited from the approximate solve) and \code{total_time}.
 #' @seealso \code{\link{optimal_design}} for the approximate design.
@@ -420,6 +426,14 @@ exact_design <- function(n,
   crit_exact <- crit_of(cnt)
   efficiency <- if (p == 0L) exp(crit_approx - crit_exact)
                 else          crit_approx / crit_exact
+  # Certified efficiency vs the TRUE optimum (Becker & Yang, eq. 27): the
+  # exact design's efficiency relative to the approximate design actually
+  # solved, times that design's own certified bound (Theorems 4.5 / 4.6) --
+  # so a reference that stopped short of the optimum cannot inflate it.
+  approx_bound <- .efficiency_bound(p, appr$max_d, appr$criterion, nrow(wb_use))
+  eff_vs_appr  <- if (p == 0L) exp(appr$criterion - crit_exact)
+                  else          appr$criterion / crit_exact
+  efficiency_certified <- min(eff_vs_appr, 1) * approx_bound
 
   # counts-based combined TOTAL Fisher information (existing design + realised
   # runs): (n0 + n1) * infor0 = n0 * I_xi0 (0 if none), plus sum_i n_i * M(x_i).
@@ -442,10 +456,12 @@ exact_design <- function(n,
     criterion_total = crit_total,
     information  = info_counts,
     efficiency   = efficiency,
+    efficiency_certified = efficiency_certified,
     criterion_approx = crit_approx,
     approx       = list(support = appr$support, weights = appr$weights,
                         criterion = appr$criterion, max_d = appr$max_d,
                         converged = appr$converged,
+                        efficiency_bound = approx_bound,
                         global_max_d = appr$global_max_d,
                         global_check = appr$global_check),
     p            = as.integer(p),
@@ -472,8 +488,9 @@ print.exact_design <- function(x, ...) {
   perm <- do.call(order, lapply(seq_len(ncol(S)), function(j) S[, j]))
   S <- S[perm, , drop = FALSE]; cnt <- x$counts[perm]
   cat(sprintf("\n=== Exact design (n = %d) ===\n", x$n))
-  cat(sprintf("|support| = %d    efficiency >= %.2f%%    approx. max sensitivity = %.3e  (0 at the optimum)    total time = %.3f s\n",
-              nrow(S), 100 * x$efficiency, x$approx$max_d, x$total_time))
+  cat(sprintf("|support| = %d    certified efficiency >= %.4f%% of the true optimum    (%.4f%% of the approximate design; its max sensitivity = %.3e, 0 at the optimum)    total time = %.3f s\n",
+              nrow(S), 100 * x$efficiency_certified, 100 * x$efficiency,
+              x$approx$max_d, x$total_time))
   cat(sprintf("criterion (per sample) = %.6f    criterion (total sample) = %.6f\n",
               x$criterion, x$criterion_total))
   cat("support point                    count\n")

@@ -291,6 +291,12 @@ compound_exact_design <- function(n, components, alpha = NULL,
               component_criterion      = stats::setNames(.cmp_single_scale(psi, ap$p), nms),
               component_criterion_star = stats::setNames(.cmp_single_scale(ap$psi_star, ap$p), nms),
               efficiency = stats::setNames(as.numeric(eff), nms),
+              # certified (Becker & Yang, Thm 4.5 / 4.6, eq. 27): times the
+              # reference designs' / the approximate compound design's own bounds
+              reference_bound = ap$reference_bound,
+              efficiency_certified = stats::setNames(
+                pmin(as.numeric(eff), 1) * as.numeric(ap$reference_bound), nms),
+              efficiency_exact_certified = min(crit_exact / ap$criterion, 1) * ap$criterion_bound,
               cross_efficiency = cross,
               alpha = ap$alpha, at = ap$at,
               p = ap$p,
@@ -316,8 +322,11 @@ print.compound_exact_design <- function(x, ...) {
   cat(sprintf("  criterion  : Psi_alpha = %.8f%s\n", x$criterion,
               if (isTRUE(x$efficiency_weighted))
                 "   (weighted average efficiency, in (0,1])" else ""))
-  cat(sprintf("  efficiency : >= %.2f%% of the approximate optimum (%.8f)\n",
+  cat(sprintf("  efficiency : %.4f%% of the approximate compound design (%.8f)\n",
               100 * x$efficiency_exact, x$criterion_approx))
+  if (is.finite(x$efficiency_exact_certified))
+    cat(sprintf("  certified  : >= %.4f%% of the TRUE compound optimum (gap bound)\n",
+                100 * x$efficiency_exact_certified))
   cat(sprintf("  exchanges  : %d accepted\n", x$exchanges))
   cat("\n  per-component criterion values, on the scale optimal_design() reports",
       "\n  (D: log det Sigma / v;  A: tr(Sigma) / v;  smaller is better)\n")
@@ -328,6 +337,7 @@ print.compound_exact_design <- function(x, ...) {
   if (isTRUE(x$efficiency_weighted)) {
     tab$optimal    <- signif(as.numeric(x$component_criterion_star), 7)
     tab$efficiency <- round(as.numeric(x$efficiency), 6)
+    tab$certified  <- round(as.numeric(x$efficiency_certified), 6)
   }
   rownames(tab) <- names(x$psi)
   print(tab)

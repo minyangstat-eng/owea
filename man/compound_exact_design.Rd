@@ -52,7 +52,12 @@ A list of class \code{"compound_exact_design"} with \code{support},
 \code{psi_star}, \code{component_criterion} and
 \code{component_criterion_star} (the per-component values on the scale
 \code{\link{optimal_design}} reports, see \code{\link{compound_design}}),
-\code{efficiency}, \code{cross_efficiency}, \code{alpha},
+\code{efficiency}, \code{reference_bound}, \code{efficiency_certified} (the
+per-component efficiencies times the reference designs' certified bounds) and
+\code{efficiency_exact_certified} (\code{efficiency_exact} times the
+approximate compound design's certified bound \code{criterion_bound}: a
+guaranteed lower bound relative to the TRUE compound optimum, Becker and Yang
+eq. (27)), \code{cross_efficiency}, \code{alpha},
 \code{at}, \code{information}, \code{n}, \code{exchanges},
 \code{n_candidates} (the size of the candidate set the exchanges searched)
 and \code{approx} (the full approximate result).

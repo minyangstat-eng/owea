@@ -90,6 +90,12 @@ a list with \code{is_optimal} -- itself a list with \code{value}
   the \code{tol} used) -- plus \code{max_sensitivity} (the maximum directional
   derivative over the design space; \eqn{\le 0}, i.e. \eqn{\le}\code{tol}, at
   the optimum), \code{criterion} (the normalised Phi_p value),
+  \code{efficiency_bound} (a certified LOWER BOUND on the design's
+  efficiency relative to the true optimum over the design space scanned,
+  from the design alone: \eqn{1/(1 + \mathrm{max\_sensitivity}/v)} for D,
+  \eqn{1 - \mathrm{max\_sensitivity}/\mathrm{criterion}} for A, \eqn{v} the
+  number of parameters of interest; Theorems 4.5 and 4.6 of Becker and Yang,
+  \emph{Post Hoc Control Group Selection via Constrained Optimal Design}),
   \code{information} (the resulting \eqn{k \times k} information matrix;
   combined with any existing design), \code{maximiser} (the design-space point
   attaining the maximum sensitivity), and echoes of \code{support},

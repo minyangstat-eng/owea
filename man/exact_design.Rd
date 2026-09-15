@@ -139,13 +139,19 @@ an object of class \code{"exact_design"}: a list with \code{support}
   Phi_p value of the TOTAL information matrix -- the criterion for all
   \code{n} runs at once), \code{information} (the counts-based combined TOTAL
   Fisher information \eqn{\sum_i n_i M(x_i)}, plus \eqn{n_0 I_{\xi_0}} when an
-  existing design is supplied), \code{efficiency} (a guaranteed LOWER
-  BOUND on the exact design's efficiency, in \eqn{(0, 1]}: it is measured
-  against the approximate optimum, which is at least as good as any exact
-  design, so the true efficiency is at least this), \code{criterion_approx},
-  \code{approx}
-  (the approximate design used, including its \code{global_max_d} /
-  \code{global_check} when \code{check_global = TRUE}), \code{p},
+  existing design is supplied), \code{efficiency} (the exact design's
+  efficiency relative to the approximate design solved first, in
+  \eqn{(0, 1]}), \code{efficiency_certified} (a guaranteed LOWER BOUND on the
+  exact design's efficiency relative to the TRUE optimum: \code{efficiency}
+  times the approximate design's own certified bound
+  \code{approx$efficiency_bound} --- Becker and Yang, \emph{Post Hoc Control
+  Group Selection via Constrained Optimal Design}, eq. (27), from their
+  Theorems 4.5 (D) and 4.6 (A); this is the value to report, since it stays
+  valid when the approximate reference stopped short of the optimum),
+  \code{criterion_approx}, \code{approx}
+  (the approximate design used, including its \code{efficiency_bound} and its
+  \code{global_max_d} / \code{global_check} when \code{check_global = TRUE}),
+  \code{p},
   \code{candidate_set}, \code{n_exchange_accepted}, \code{converged}
   (inherited from the approximate solve) and \code{total_time}.
 }

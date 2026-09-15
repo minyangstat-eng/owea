@@ -8,7 +8,7 @@
 compound_design(components, alpha = NULL,
                 design_box = NULL, step_sequence = NULL,
                 candidate_set = NULL, factor_levels = NULL,
-                efficiency = TRUE, psi_star = NULL,
+                efficiency = TRUE, psi_star = NULL, reference_bound = NULL,
                 xi0_points = NULL, xi0_weights = numeric(0),
                 n0 = 0, n1 = 1,
                 max_iter = 100L, eps0 = 1e-6,
@@ -41,6 +41,12 @@ different numbers of parameters.}
 optimum \eqn{\Psi_j^{*}}, so \code{alpha} weights efficiencies; if
 \code{FALSE} the raw \eqn{\Psi_j} are weighted.}
 
+\item{reference_bound}{optional numeric vector, one value per component: the
+certified efficiency bound of the design each supplied \code{psi_star} came
+from (the \code{reference_bound} element of an earlier result). Used only
+together with \code{psi_star}; without it the certified efficiencies are
+\code{NA} when \code{psi_star} is supplied.}
+
 \item{psi_star}{optional numeric vector of reference values \eqn{\Psi_j^{*}};
 by default computed by \code{length(components)} single-component runs over the
 same design space.}
@@ -72,7 +78,17 @@ per-component values of this design and of each component's own optimum on
 the scale \code{\link{optimal_design}} reports: \eqn{\log\det \Sigma_j / v_j}
 for D, \eqn{\mathrm{tr}\,\Sigma_j / v_j} for A, i.e. \eqn{-\log\Psi_j} and
 \eqn{1/\Psi_j}; smaller is better),
-\code{efficiency} (per-component \eqn{\Psi_j/\Psi_j^{*}}), \code{alpha},
+\code{efficiency} (per-component \eqn{\Psi_j/\Psi_j^{*}}, relative to the
+derived reference designs), \code{reference_bound} (each reference design's
+own certified efficiency bound, Theorems 4.5 and 4.6 of Becker and Yang,
+\emph{Post Hoc Control Group Selection via Constrained Optimal Design}),
+\code{efficiency_certified} (\code{efficiency} times \code{reference_bound}:
+a guaranteed lower bound on each component efficiency relative to the TRUE
+component optimum), \code{criterion_bound} (a certified lower bound on
+\eqn{\Psi_\alpha(\xi)/\Psi_\alpha^{*}}, \eqn{\Psi_\alpha/(\Psi_\alpha +
+\mathrm{max\_d})}), \code{cross_efficiency_certified} (the cross-efficiency
+table with each column multiplied by that component's reference bound),
+\code{alpha},
 \code{at} (the weights actually used), \code{cross_efficiency},
 \code{reference_designs}, \code{information} (a list of the per-component
 information matrices \eqn{M_j}), \code{iterations}, \code{times},

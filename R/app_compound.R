@@ -211,7 +211,7 @@
 # this key is exactly the condition under which the reference solves would
 # reproduce the values it already has.
 .uic_psi_key <- function(args) {
-  volatile <- c("alpha", "efficiency", "n", "seed", "psi_star")
+  volatile <- c("alpha", "efficiency", "n", "seed", "psi_star", "reference_bound")
   args[setdiff(names(args), volatile)]
 }
 
@@ -229,6 +229,8 @@
   if (isTRUE(res$efficiency_weighted)) {
     d$optimal    <- signif(as.numeric(res$component_criterion_star), 7)
     d$efficiency <- round(as.numeric(res$efficiency), 6)
+    # guaranteed lower bound vs the TRUE optimum (Becker & Yang, Thm 4.5 / 4.6)
+    d$certified  <- round(as.numeric(res$efficiency_certified), 6)
   }
   rownames(d) <- names(res$psi)
   d
