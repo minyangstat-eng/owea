@@ -25,6 +25,14 @@
   together with their bounds, and an exact compound design on such a rerun
   failed with "unused argument (reference_bound = ...)". The app's compound
   verify step now passes the bounds through as well.
+* Clearer wording for the compound criterion value. The app's status line said
+  "weighted average efficiency = 0.945 out of 1", which read as if 1 were
+  attainable. It now explains that the value is the weighted average of the
+  objectives' efficiencies, that it is the highest any single design can reach
+  for these objectives and weights (certified by the max sensitivity), and that
+  it would equal 1 only if one design were optimal for every objective at once.
+  The print methods of `compound_design()` and `compound_exact_design()` say the
+  same.
 
 # owea 0.4.0
 

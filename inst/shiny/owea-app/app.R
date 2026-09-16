@@ -322,7 +322,10 @@ ui <- fluidPage(
           tags$span(tags$b("To efficiencies (recommended)."),
                     " Each objective is divided by the best it could achieve on ",
                     "its own, so the weights compare like with like and the ",
-                    "reported value is an average efficiency between 0 and 1."),
+                    "reported value is a weighted average of the objectives' ",
+                    "efficiencies. It can never exceed 1, and the compound-optimal ",
+                    "design reaches the highest value possible, which is below 1 ",
+                    "unless one design is optimal for every objective at once."),
           tags$span(tags$b("To the raw criterion values."),
                     " Criteria of different models are on unrelated scales, so ",
                     "the weights will absorb that difference rather than express ",
@@ -1920,14 +1923,25 @@ server <- function(input, output, session) {
                          function(w) tags$li(.friendly_warn(w)))),
         reuse))
     ok <- isTRUE(r$converged)
+    # Psi_alpha is a weighted average of the component efficiencies, so it is
+    # bounded by 1, but 1 is reached only if one design were optimal for every
+    # objective at once.  Say what the number is, not just its scale.
+    val_ui <- if (isTRUE(r$efficiency_weighted))
+      sprintf(paste0("Weighted average of the objectives' efficiencies = %.6f. ",
+                     if (ok) paste0("This is the highest value any single design can ",
+                                    "reach for these objectives with these weights ",
+                                    "(certified: max sensitivity %.2e, 0 at the optimum). ")
+                     else "(max sensitivity %.2e; 0 at the optimum). ",
+                     "The average cannot exceed 1 and would equal 1 only if one design ",
+                     "were optimal for every objective simultaneously; the shortfall ",
+                     "from 1 is the price of serving all objectives with one design."),
+              r$criterion, r$max_d)
+    else
+      sprintf("Weighted criterion = %.6f  (max sensitivity %.2e; 0 at the optimum).",
+              r$criterion, r$max_d)
     div(class = if (ok) "alert alert-success" else "alert alert-warning",
         tags$b(if (ok) "Compound design found. " else "Did not converge. "),
-        sprintf("%s = %.6f%s  (max sensitivity %.2e).",
-                if (isTRUE(r$efficiency_weighted))
-                  "Weighted average efficiency" else "Weighted criterion",
-                r$criterion,
-                if (isTRUE(r$efficiency_weighted)) " out of 1" else "",
-                r$max_d),
+        val_ui,
         if (length(c2$warns))
           tags$ul(lapply(unique(c2$warns), function(w) tags$li(.friendly_warn(w)))),
         reuse)

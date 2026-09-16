@@ -951,7 +951,10 @@ print.compound_design <- function(x, ...) {
               if (isTRUE(x$efficiency_weighted)) "efficiency" else "raw"))
   cat(sprintf("  criterion  : Psi_alpha = %.8f%s\n", x$criterion,
               if (isTRUE(x$efficiency_weighted))
-                "   (weighted average efficiency, in (0,1])" else ""))
+                paste0("   (weighted average of the component efficiencies: the best any",
+                       "\n                single design can reach here; it would equal 1 only if",
+                       "\n                one design were optimal for every component at once)")
+              else ""))
   cat(sprintf("  max_d      : %.3e   %s\n", x$max_d,
               if (isTRUE(x$converged)) "(optimal)" else "(NOT converged)"))
   cat("\n  per-component criterion values, on the scale optimal_design() reports",

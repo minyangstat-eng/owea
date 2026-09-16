@@ -330,7 +330,10 @@ print.compound_exact_design <- function(x, ...) {
               x$n, nrow(x$support)))
   cat(sprintf("  criterion  : Psi_alpha = %.8f%s\n", x$criterion,
               if (isTRUE(x$efficiency_weighted))
-                "   (weighted average efficiency, in (0,1])" else ""))
+                paste0("   (weighted average of the component efficiencies; it would",
+                       "\n                equal 1 only if one design were optimal for every",
+                       "\n                component at once)")
+              else ""))
   cat(sprintf("  efficiency : >= %.4f%% of the compound optimum   (approximate compound design: %.8f)\n",
               100 * x$efficiency_exact_lower_bound, x$criterion_approx))
   cat(sprintf("  exchanges  : %d accepted\n", x$exchanges))
