@@ -24,7 +24,10 @@
 # per-continuous finest steps ('finest').  Each continuous covariate's sequence
 # is sorted coarsest-first; unequal-length sequences are padded at the coarse end
 # with that covariate's coarsest step so every stage covers all covariates.
-.ui_design_box <- function(covariates) {
+# With continuous = TRUE (the app's "search the continuous region" choice) no
+# steps are needed or validated: step_sequence is NULL, finest is numeric(0) and
+# the returned list carries continuous = TRUE for .ui_solver_args().
+.ui_design_box <- function(covariates, continuous = FALSE) {
   db <- vector("list", length(covariates))
   nm <- character(length(covariates))
   seqs <- list()                                   # per-continuous step sequences
@@ -40,16 +43,21 @@
     } else {
       if (!is.finite(cv$lo) || !is.finite(cv$hi) || cv$lo >= cv$hi)
         stop(sprintf("continuous '%s' needs low < high.", cv$name), call. = FALSE)
-      s <- as.numeric(if (!is.null(cv$steps)) cv$steps else cv$step)
-      s <- s[is.finite(s)]
-      if (!length(s) || any(s <= 0))
-        stop(sprintf("continuous '%s' needs a step sequence of positive numbers.",
-                     cv$name), call. = FALSE)
       db[[i]] <- c(cv$lo, cv$hi)
-      seqs[[length(seqs) + 1L]] <- sort(unique(s), decreasing = TRUE)  # coarsest first
+      if (!isTRUE(continuous)) {
+        s <- as.numeric(if (!is.null(cv$steps)) cv$steps else cv$step)
+        s <- s[is.finite(s)]
+        if (!length(s) || any(s <= 0))
+          stop(sprintf("continuous '%s' needs a step sequence of positive numbers.",
+                       cv$name), call. = FALSE)
+        seqs[[length(seqs) + 1L]] <- sort(unique(s), decreasing = TRUE)  # coarsest first
+      }
     }
   }
   names(db) <- nm
+  if (isTRUE(continuous))
+    return(list(design_box = db, step_sequence = NULL, finest = numeric(0),
+                continuous = TRUE))
   if (length(seqs) == 0L) {
     step_sequence <- numeric(0); finest <- numeric(0)
   } else {
@@ -59,7 +67,8 @@
     step_sequence <- lapply(seq_len(K), function(j) vapply(seqs, `[`, numeric(1), j))
     finest <- vapply(seqs, function(s) s[length(s)], numeric(1))
   }
-  list(design_box = db, step_sequence = step_sequence, finest = finest)
+  list(design_box = db, step_sequence = step_sequence, finest = finest,
+       continuous = FALSE)
 }
 
 # Parse the "grid step(s)" text box: one number or a comma-separated step
@@ -80,11 +89,15 @@
 # Full-box grid size at each stage of the step sequence, for the large-grid
 # warning: prod(continuous: round((hi-lo)/step)+1) * prod(factor nlevels).
 # Returns one count per stage (integer-ish numeric), or 1 for an all-factor box.
-.ui_grid_sizes <- function(covariates) {
-  db <- .ui_design_box(covariates)
+# With continuous = TRUE there is no grid to warn about: the single count is the
+# small coarse grid the continuous search starts from (3 levels per continuous
+# covariate times the factor levels).
+.ui_grid_sizes <- function(covariates, continuous = FALSE) {
+  db <- .ui_design_box(covariates, continuous = continuous)
   fac <- vapply(covariates, function(cv) identical(cv$type, "factor"), logical(1))
   nlev <- prod(vapply(covariates[fac],
                       function(cv) as.numeric(cv$nlevels), numeric(1)))
+  if (isTRUE(continuous)) return(nlev * 3^sum(!fac))
   if (length(db$step_sequence) == 0L) return(nlev)               # all-factor
   rng <- vapply(covariates[!fac],
                 function(cv) as.numeric(cv$hi) - as.numeric(cv$lo), numeric(1))
@@ -94,14 +107,39 @@
 # Number of design points verify_optimality() will scan for a model spec:
 # the full design_box grid at the FINEST step of the step sequence (the step
 # .ui_solver_args() passes for the "verify" target), times all factor levels.
-# Closed form -- no grid is built.
-.ui_verify_points <- function(spec) {
+# Closed form -- no grid is built.  NA for a continuous-search spec: its
+# verification searches the region (multi-start + audit) instead of a grid --
+# unless `step` is given, the grid step(s) of an explicit grid check (a scalar
+# or one value per continuous covariate), which is then counted for any spec.
+.ui_verify_points <- function(spec, step = NULL) {
   db  <- spec$design_box
   fac <- vapply(db, function(b) length(b) == 1L, logical(1))
   nlev <- if (any(fac)) prod(vapply(db[fac], as.numeric, numeric(1))) else 1
+  if (!is.null(step)) {
+    step <- as.numeric(step)
+    if (!length(step) || any(!is.finite(step)) || any(step <= 0)) return(NA_real_)
+    if (!any(!fac)) return(nlev)
+    rng <- vapply(db[!fac], function(b) b[2] - b[1], numeric(1))
+    if (length(step) != 1L && length(step) != length(rng)) return(NA_real_)
+    return(nlev * prod(round(rng / step) + 1))
+  }
+  if (isTRUE(spec$continuous)) return(NA_real_)
   if (!length(spec$finest)) return(nlev)                         # all-factor
   rng <- vapply(db[!fac], function(b) b[2] - b[1], numeric(1))
   nlev * prod(round(rng / spec$finest) + 1)
+}
+
+# A suggested grid step for an explicit grid check of a design, as the text the
+# app's step box shows: the finest step(s) of a grid spec, or, for a continuous
+# search, one fortieth of each continuous covariate's range (2 significant
+# digits) -- one value per continuous covariate, comma-separated.
+.ui_verify_step_default <- function(spec) {
+  if (length(spec$finest)) return(paste(format(spec$finest), collapse = ", "))
+  db  <- spec$design_box
+  fac <- vapply(db, function(b) length(b) == 1L, logical(1))
+  if (!any(!fac)) return("")
+  rng <- vapply(db[!fac], function(b) b[2] - b[1], numeric(1))
+  paste(format(signif(rng / 40, 2)), collapse = ", ")
 }
 
 # within-kind index + kind ("f"/"x") for each covariate, in display order.
@@ -119,17 +157,25 @@
 #   interactions : list of integer pairs c(a, b) -- covariate positions (1-based)
 #   quadratics   : integer vector of continuous-covariate positions to square
 #   link, ncat   : model family
+#   continuous   : TRUE = search the continuous covariates in the continuous
+#                  region (optimal_design(continuous = TRUE); no grid steps)
+#   n_audit      : random audit points of the continuous search (0 = none);
+#                  anything that is not a nonnegative number falls back to the
+#                  solver default 20000
 #
 # Returns a list ready to splice into optimal_design()/exact_design():
-#   design_box, step_sequence, link, ncat, f, x, fx, xx, ff
+#   design_box, step_sequence, link, ncat, f, x, fx, xx, ff, continuous, n_audit
 # fx / xx / ff are emitted in the LIST-of-pairs form (robust to > 9 covariates).
 .ui_model_spec <- function(covariates, interactions = list(), quadratics = integer(0),
                            link = "identity", ncat = NULL,
-                           coding = "zero-sum") {
+                           coding = "zero-sum", continuous = FALSE,
+                           n_audit = 20000L) {
   if (length(covariates) == 0L)
     stop("add at least one covariate.", call. = FALSE)
   coding <- match.arg(coding, c("zero-sum", "baseline"))
-  db <- .ui_design_box(covariates)
+  db <- .ui_design_box(covariates, continuous = continuous)
+  n_audit <- suppressWarnings(as.integer(round(as.numeric(n_audit)[1])))
+  if (is.na(n_audit) || n_audit < 0L) n_audit <- 20000L
   ki <- .ui_kind_index(covariates)
 
   is_factor <- vapply(covariates, function(cv) identical(cv$type, "factor"), logical(1))
@@ -161,7 +207,9 @@
   nz <- function(v) if (length(v) == 0L) NULL else v
   list(design_box = db$design_box, step_sequence = db$step_sequence,
        finest = db$finest, link = link, ncat = ncat, coding = coding,
-       f = nz(f), x = nz(x), fx = nz(fx), xx = nz(xx), ff = nz(ff))
+       f = nz(f), x = nz(x), fx = nz(fx), xx = nz(xx), ff = nz(ff),
+       continuous = isTRUE(db$continuous),
+       n_audit = if (isTRUE(db$continuous)) n_audit else NA_integer_)
 }
 
 # The spec's factor coding, defaulting for specs built before it existed.
@@ -206,6 +254,10 @@
 #   existing : NULL, or .ui_existing_from_csv()/.ui_existing_from_data() output
 #              -- list(points, weights, n0, n1)
 #   n        : exact designs only, the runs to allocate
+#   verify_step : "verify" target only -- when given, the check runs over a
+#              GRID of the design box at these step(s) (a scalar, or one value
+#              per continuous covariate) whatever the spec's own search mode;
+#              NULL (default) checks over the design space the computation used
 #
 # Returns a named list to do.call() into.  With no existing design the xi0_* /
 # n0 / n1 arguments are OMITTED entirely (passing xi0_points with n0 = 0 would
@@ -213,7 +265,7 @@
 .ui_solver_args <- function(spec, target = c("optimal", "exact", "verify",
                                              "fit", "simulate"),
                             theta = NULL, p = 0L, subset = NULL,
-                            existing = NULL, n = NULL) {
+                            existing = NULL, n = NULL, verify_step = NULL) {
   target <- match.arg(target)
   cn <- .ui_coef_names(spec)
   k  <- length(cn)
@@ -247,11 +299,31 @@
     }
   }
 
-  # the design space
-  if (target %in% c("optimal", "exact")) args$step_sequence <- spec$step_sequence
+  # the design space: a grid (step_sequence / the finest step for verification)
+  # or, for a continuous-search spec, the continuous region itself
+  cont_args <- function(a) {              # the continuous search and its audit size
+    a$continuous <- TRUE
+    if (!is.null(spec$n_audit) && !is.na(spec$n_audit))
+      a$n_audit <- as.integer(spec$n_audit)
+    a
+  }
+  if (target %in% c("optimal", "exact")) {
+    if (isTRUE(spec$continuous)) args <- cont_args(args)
+    else args$step_sequence <- spec$step_sequence
+  }
   if (identical(target, "verify")) {
-    args$step       <- spec$finest
-    args$max_points <- Inf
+    if (!is.null(verify_step)) {              # an explicit grid check
+      st <- as.numeric(verify_step)
+      if (!length(st) || any(!is.finite(st)) || any(st <= 0))
+        stop("the grid step(s) of the check must be positive numbers.", call. = FALSE)
+      args$step       <- st
+      args$max_points <- Inf
+    } else if (isTRUE(spec$continuous)) {
+      args <- cont_args(args)
+    } else {
+      args$step       <- spec$finest
+      args$max_points <- Inf
+    }
   }
 
   # the existing design
@@ -302,6 +374,196 @@
                            "the existing design")
   list(points = pts, weights = w / sw, n0 = as.integer(round(n0)),
        n1 = as.integer(round(n1)))
+}
+
+# ---- R code that reproduces a computation ----------------------------------
+# The app's results page shows (and downloads) the solver call it made as a
+# plain R script, so a user can rerun and adapt the computation in R.  `args` is
+# the do.call() argument list from .ui_solver_args() (plus seed / n for an exact
+# design); `verify_args` the "verify" list for the same spec, appended as a
+# verify_optimality() call for approximate designs.
+
+# back-tick a name that is not syntactic (covariate names are typed by the user)
+.ui_bt <- function(nm) ifelse(make.names(nm) == nm, nm, paste0("`", nm, "`"))
+
+# one argument value as R source (vectors, named lists, matrices as rbind())
+.ui_fmt_arg <- function(v, indent = 4L) {
+  pad <- strrep(" ", indent)
+  # each number on its own (so c(0.2, 1) is not written as c(0.2, 1.0))
+  num <- function(z) vapply(as.numeric(z), function(v) format(v, digits = 15), character(1))
+  if (is.null(v)) return("NULL")
+  if (is.function(v)) return("<function>")
+  if (is.matrix(v)) {
+    rows <- apply(v, 1, function(r) paste0("c(", paste(num(r), collapse = ", "), ")"))
+    return(paste0("rbind(", paste(rows, collapse = paste0(",\n", pad, "      ")), ")"))
+  }
+  if (is.list(v)) {
+    inner <- vapply(v, .ui_fmt_arg, character(1), indent = indent)
+    nm <- names(v)
+    if (!is.null(nm) && any(nzchar(nm)))
+      inner <- paste0(ifelse(nzchar(nm), paste0(.ui_bt(nm), " = "), ""), inner)
+    return(paste0("list(", paste(inner, collapse = ", "), ")"))
+  }
+  s <- if (is.character(v)) paste0('"', v, '"')
+       else if (is.logical(v)) ifelse(v, "TRUE", "FALSE")
+       else num(v)
+  if (length(v) == 1L) s else paste0("c(", paste(s, collapse = ", "), ")")
+}
+
+# the call `fn(` + one argument per line + `)`.  `first` / `raw` are ready-made
+# "name = expression" lines placed before / after the formatted arguments.
+.ui_fmt_call <- function(fn, args, first = character(0), raw = character(0)) {
+  keep <- args[!vapply(args, is.null, logical(1))]
+  pref <- c("n", "design_box", "step_sequence", "continuous", "n_audit", "link",
+            "ncat", "f", "x", "fx", "xx", "ff", "coding", "theta", "p", "subset",
+            "xi0_points", "xi0_weights", "n0", "n1", "seed", "step", "max_points",
+            "sigma", "nsim", "existing")
+  nm   <- names(keep)
+  keep <- keep[c(intersect(pref, nm), setdiff(nm, pref))]
+  split_nv <- function(s) list(n = trimws(sub("=.*$", "", s)),
+                               v = trimws(sub("^[^=]*=", "", s)))
+  f1 <- split_nv(first); r1 <- split_nv(raw)
+  w  <- max(nchar(c(names(keep), f1$n, r1$n)), 1L)
+  line_of <- function(n, v) if (length(n)) paste0(formatC(n, width = -w), " = ", v)
+                            else character(0)
+  body <- c(line_of(f1$n, f1$v),
+            line_of(names(keep), vapply(keep, .ui_fmt_arg, character(1))),
+            line_of(r1$n, r1$v))
+  body <- paste0("  ", body, c(rep(",", length(body) - 1L), ""))
+  c(paste0(fn, "("), body, ")")
+}
+
+# `sim` (exact designs only) describes the app's simulation study: theta (the
+# true values), sigma (identity link; else NULL), nsim, seed, existing
+# (list(points, counts) or NULL), obs (list(data, response) or NULL) and
+# designs -- a named list of list(support, counts), the designs compared with.
+.ui_r_code <- function(args, target = c("optimal", "exact"), verify_args = NULL,
+                       sim = NULL) {
+  target <- match.arg(target)
+  exact  <- identical(target, "exact")
+  fn     <- if (exact) "exact_design" else "optimal_design"
+  ver    <- tryCatch(as.character(utils::packageVersion("owea")), error = function(e) "")
+  lines  <- c(
+    sprintf("## R code generated by the owea app (owea %s): it reproduces the computed design.", ver),
+    sprintf("## Edit any argument and rerun; see ?%s for all options.", fn),
+    "library(owea)", "")
+  if (isTRUE(args$continuous))
+    lines <- c(lines,
+               "## The continuous search uses random starts and random audit points; a fixed",
+               "## seed reproduces this run exactly (any seed gives the same design up to eps0).",
+               "set.seed(1)", "")
+  call1 <- .ui_fmt_call(fn, args)
+  lines <- c(lines, paste0("res <- ", call1[1]), call1[-1],
+             if (exact) "print(res)          # runs per support point, per-sample and total criterion"
+             else       "print_result(res)   # support points, weights, criterion, max sensitivity")
+  if (!exact && !is.null(verify_args)) {
+    vc <- .ui_fmt_call("verify_optimality", verify_args,
+                       first = c("support = res$support", "weights = res$weights"))
+    lines <- c(lines, "",
+               "## Check the design against the general equivalence theorem over the design",
+               "## space given below (a grid at 'step', or the continuous region)",
+               paste0("v <- ", vc[1]), vc[-1],
+               "v$is_optimal$value        # TRUE when the max sensitivity is <= tol",
+               "v$max_sensitivity",
+               "v$efficiency_lower_bound")
+  }
+  if (exact && !is.null(sim)) lines <- c(lines, "", .ui_r_code_sim(args, sim))
+  paste(lines, collapse = "\n")
+}
+
+# The simulation-study block of .ui_r_code(): simulate_design() at the exact
+# design and at every design the app compared it with (each pooled with the
+# first stage, if any), then the mean squared errors side by side.
+.ui_r_code_sim <- function(args, sim) {
+  mod <- args[intersect(names(args), c("design_box", "link", "ncat", "f", "x", "fx",
+                                        "xx", "ff", "coding"))]
+  common <- c(mod, list(nsim = as.integer(sim$nsim), seed = as.integer(sim$seed)))
+  if (!is.null(sim$sigma)) common$sigma <- as.numeric(sim$sigma)
+  raw <- "theta = theta_true"
+  out <- c("## Simulation study: simulate responses at the design, refit the model and report",
+           "## the estimation error per parameter (mean and median squared error)",
+           paste0("theta_true <- ", .ui_fmt_arg(as.numeric(sim$theta)),
+                  "   # the true values used in the app"))
+  if (!is.null(sim$obs)) {
+    d <- sim$obs$data
+    if (is.data.frame(d) && nrow(d) <= 500L) {
+      csv <- utils::capture.output(utils::write.csv(d, row.names = FALSE))
+      out <- c(out,
+               "## the observed first stage: its responses are kept, only the new runs are simulated",
+               "obs_data <- read.csv(text = c(",
+               paste0("  \"", gsub("\"", "\\\\\"", csv), "\"",
+                      c(rep(",", length(csv) - 1L), "")),
+               "))")
+    } else {
+      out <- c(out, sprintf(paste0("obs_data <- read.csv(\"your_data.csv\")   # the observed ",
+                                   "data set used in the app (%s rows)"),
+                            if (is.data.frame(d)) nrow(d) else "?"))
+    }
+    raw <- c(raw, sprintf("obs = list(data = obs_data, response = %s)",
+                          if (is.null(sim$obs$response)) "NULL"
+                          else .ui_fmt_arg(sim$obs$response)))
+  } else if (!is.null(sim$existing)) {
+    common$existing <- list(points = unname(as.matrix(sim$existing$points)),
+                            counts = as.integer(sim$existing$counts))
+    out <- c(out, "## the first stage (an existing design) is simulated and analysed together with the new runs")
+  }
+  sc <- .ui_fmt_call("simulate_design", common,
+                     first = c("support = res$support", "counts = res$counts"), raw = raw)
+  out <- c(out, paste0("sim <- ", sc[1]), sc[-1], "sim$mse", "sim$medse")
+  mse_rows <- "`Exact design` = sim$mse"
+  for (nm in names(sim$designs)) {
+    dsg <- sim$designs[[nm]]
+    var <- tolower(gsub("[^A-Za-z0-9]+", "_", nm))
+    out <- c(out, "",
+             sprintf("## the %s design the app compared with (%d runs)", nm, sum(dsg$counts)),
+             paste0(var, "_support <- ", .ui_fmt_arg(unname(as.matrix(dsg$support)))),
+             paste0(var, "_counts  <- ", .ui_fmt_arg(as.integer(dsg$counts))))
+    sc2 <- .ui_fmt_call("simulate_design", common,
+                        first = c(sprintf("support = %s_support", var),
+                                  sprintf("counts = %s_counts", var)), raw = raw)
+    out <- c(out, paste0("sim_", var, " <- ", sc2[1]), sc2[-1])
+    mse_rows <- c(mse_rows, sprintf("%s = sim_%s$mse", .ui_bt(nm), var))
+  }
+  if (length(sim$designs))
+    out <- c(out, "",
+             "## mean squared errors side by side; a ratio above 1 means the exact design has",
+             "## the smaller error for that parameter",
+             paste0("mse <- rbind(", paste(mse_rows, collapse = ", "), ")"),
+             "mse",
+             "sweep(mse[-1, , drop = FALSE], 2, mse[1, ], \"/\")")
+  out
+}
+
+# ---- a simple random sample of n runs from the design space -----------------
+# The comparison design of the app's simulation study.  After a grid
+# computation the runs are drawn (with replacement) from the finest-step grid;
+# after a continuous search there is no grid, so each run is drawn uniformly
+# from the continuous region (factors uniformly over their levels).  Returns
+# the distinct points with their run counts, and the pool size (NA for the
+# continuous draw).
+.ui_srs_design <- function(spec, n) {
+  n <- suppressWarnings(as.integer(n))
+  if (is.na(n) || n < 1L)
+    stop("the simple random sample needs n >= 1.", call. = FALSE)
+  meta <- .parse_design_box(spec$design_box)
+  d <- length(meta$is_factor)
+  if (isTRUE(spec$continuous) || !length(spec$finest)) {
+    pts <- matrix(0, n, d)
+    for (j in seq_len(d))
+      pts[, j] <- if (meta$is_factor[j]) sample.int(meta$nlevels[j], n, replace = TRUE)
+                  else stats::runif(n, meta$lo[j], meta$hi[j])
+    pool_size <- NA_real_
+  } else {
+    pool <- candidate_grid(spec$design_box, spec$finest)
+    pts  <- pool[sample.int(nrow(pool), n, replace = TRUE), , drop = FALSE]
+    pool_size <- nrow(pool)
+  }
+  keys <- do.call(paste, c(as.data.frame(pts), sep = "\r"))
+  uk   <- unique(keys)
+  sup  <- unname(as.matrix(pts[match(uk, keys), , drop = FALSE]))
+  colnames(sup) <- names(spec$design_box)
+  list(support = sup, counts = as.integer(table(factor(keys, levels = uk))),
+       pool_size = pool_size)
 }
 
 # ---- assumed parameter values ---------------------------------------------
@@ -414,8 +676,18 @@
 # Returns the fields of simulate_design(nsim > 1) that the app consumes, plus
 # n_existing / n_new.
 .ui_simulate <- function(spec, theta, sigma = 1, support, counts,
-                         existing = NULL, obs = NULL, nsim = 1000L, seed = NULL) {
-  plan <- .ui_plan(spec)
+                         existing = NULL, obs = NULL, nsim = 1000L, seed = NULL)
+  .simulate_pooled(.ui_plan(spec), theta, sigma, support, counts, existing, obs,
+                   nsim, seed)
+
+# The same from a model "plan" (.build_model_terms()); also the pooled path of
+# the exported simulate_design(existing = , obs = ).
+#   existing : list(points, counts) or list(points, weights, n0): a first-stage
+#              design whose responses are simulated along with the new runs
+#   obs      : list(data, response): an observed first stage whose responses
+#              are kept fixed (takes precedence over `existing`)
+.simulate_pooled <- function(plan, theta, sigma = 1, support, counts,
+                             existing = NULL, obs = NULL, nsim = 1000L, seed = NULL) {
   k    <- plan$k
   # every link needs the TRUE values here -- even the identity model, whose
   # DESIGN does not depend on them but whose simulated responses do
@@ -442,9 +714,16 @@
     yold <- .check_response(sp$y, plan, sp$resp_name)
   } else if (!is.null(existing)) {              # design-only first stage: simulate y
     cnt <- existing$counts
-    if (is.null(cnt) || sum(cnt) != existing$n0)
+    has_w <- !is.null(existing$weights) && !is.null(existing$n0)
+    if (is.null(cnt)) {
+      if (!has_w)
+        stop("'existing' needs 'counts' (runs per point), or 'weights' and 'n0'.",
+             call. = FALSE)
       cnt <- .apportion(existing$weights, as.integer(existing$n0))
-    Xold <- fix_dim(rows(existing$points, cnt))
+    } else if (has_w && sum(cnt) != existing$n0) {
+      cnt <- .apportion(existing$weights, as.integer(existing$n0))
+    }
+    Xold <- fix_dim(rows(existing$points, as.integer(round(cnt))))
   }
   n_old <- if (is.null(Xold)) 0L else nrow(Xold)
   X     <- if (is.null(Xold)) Xnew else rbind(Xold, Xnew)

@@ -15,6 +15,31 @@ on it.
 
 ---
 
+## What's new in 0.5.0
+
+- **Grid-free search over continuous covariates** —
+  `optimal_design(continuous = TRUE)` searches the continuous covariates in the
+  continuous design region: no `step_sequence`, and no candidate set that grows
+  exponentially with the number of continuous covariates. It starts from the
+  OWEA solution on a coarse 3-level grid, then alternates polishing of the
+  support-point locations (L-BFGS-B on the criterion with a closed-form
+  gradient), the package's Newton weight step, merging, and adding the
+  maximiser of the directional derivative found by multi-start L-BFGS-B; it
+  stops when the equivalence theorem holds over a multi-start search plus a
+  random audit of 20,000 points. Also in `exact_design()` and
+  `verify_optimality()`, and in the app ("How to search the continuous
+  covariates", with the number of audit points as an input; the verify panel
+  can also check a continuous-search design over a grid at a step you
+  choose). See §3.
+- **R code from the app** — the results page ends with a runnable script: the
+  exact `optimal_design()` / `exact_design()` call the app made, the
+  `verify_optimality()` check at the grid step you chose, and, for an exact
+  design, the simulation study as run (the design and every design it was
+  compared with, via `simulate_design()`, which gains `existing` / `obs` to
+  pool a first stage as the app does).
+- **Analytic derivatives for formula-style models** and finite differences
+  (or your own `info_jacobian`) for user-supplied model functions.
+
 ## What's new in 0.4.1
 
 - **Efficiencies are guaranteed lower bounds** — every efficiency the package
@@ -231,6 +256,46 @@ Give **either** a continuous design region **or** a fixed candidate set:
   X <- candidate_grid(list(c(0, 3)), step = 0.05)   # or make_grid(), or your own matrix
   optimal_design(info_vector = info_vec, theta = th, candidate_set = X, p = 0)
   ```
+
+- **Continuous region, no grid** — `design_box` with `continuous = TRUE`. The
+  continuous covariates are searched directly in the region, so no
+  `step_sequence` is needed and the cost does not grow exponentially with the
+  number of continuous covariates (a 0.05 grid over six covariates on
+  `[-2, 2]` would have 81^6 points; the continuous search takes a few
+  seconds). Factor covariates keep their levels.
+
+  ```r
+  optimal_design(link = "logit", x = 1:3, theta = th,
+                 design_box = list(c(-2,2), c(-1,1), c(-3,3)),
+                 continuous = TRUE, p = 1)
+  ```
+
+  How it works: the OWEA engine is first solved on a coarse grid with
+  `init_levels = 3` levels per continuous covariate (or start from your own
+  `init_points`). Then, until the equivalence theorem holds: (i) *polishing* —
+  with the weights fixed, the criterion is minimised over the continuous
+  coordinates of all support points by L-BFGS-B, using the closed-form
+  gradient `-(w_i / v) ∂ tr(P I(x)) / ∂x` at `x_i`, where `P` is the matrix
+  behind the directional derivative; (ii) the package's Newton weight step on
+  the current support; (iii) support points closer than `merge_tol` (a
+  fraction of each covariate's range) are merged; (iv) the maximiser of the
+  directional derivative over the region is found by multi-start L-BFGS-B
+  (started from the support points, the box vertices and `n_starts = 30`
+  random points, for every level combination of the factors) and added when
+  it violates the equivalence theorem. The search stops when that maximum is
+  at most `eps0` **and** a random audit of `n_audit = 20000` points (its best
+  points polished locally) finds no violation.
+
+  The certificate is therefore the largest directional derivative over the
+  points examined — a strong heuristic, not an exhaustive scan — and
+  `efficiency_lower_bound` is computed from it. For a small number of
+  covariates you can add a grid scan with `check_global = TRUE, global_step =
+  ...`. Derivatives of the information with respect to the continuous
+  covariates are analytic for formula-style models (`link` + terms), finite
+  differences for a user-supplied `info_vector` / `info_matrix`, or your own
+  `info_jacobian(x, theta)` (`k × n_c`, or `k² × n_c` for an information
+  matrix). The result reports `method = "continuous"`, `iterations`,
+  `history`, `maximiser`, `audit_max_d` and `jacobian`.
 
 `candidate_grid(design_box, step)` and `make_grid(lower, upper, by)` build a
 rectangular grid; or pass any `n × N` numeric matrix of your own points.
@@ -535,6 +600,12 @@ you are asked to **abort**, **proceed anyway**, or compute the
 design is still validated and its criterion and information matrix returned,
 but no grid is built and optimality is not assessed (`max_sensitivity` is
 `NA`).
+
+With `continuous = TRUE` (and `design_box`, no `step`) the design space is the
+continuous region: the maximum sensitivity is found by the same multi-start
+search plus random audit that `optimal_design(continuous = TRUE)` uses, so the
+result is a maximum over the points examined rather than an exhaustive scan
+(`method = "continuous"`, `n_audit`, `audit_max_d`).
 
 ---
 

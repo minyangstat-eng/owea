@@ -234,6 +234,57 @@ owea <- function(prob, eps0 = 1e-6, max_outer = 2000L, verbose = FALSE,
 #' @param add_per_iter number of violating candidate points added per exchange
 #'   iteration when \code{engine = "active-set"} (at most 20\% of the current
 #'   support per iteration); ignored by the classic engine, which adds one.
+#' @param continuous if \code{TRUE} (\code{design_box} path only), search the
+#'   continuous covariates in the CONTINUOUS design region instead of on a grid;
+#'   no \code{step_sequence} is needed. The solver starts from the OWEA solution
+#'   on a small coarse grid (\code{init_levels} levels per continuous covariate
+#'   times all levels of every factor), then alternates (i) polishing -- with
+#'   the weights fixed, the criterion is minimised over the continuous
+#'   coordinates of all support points by L-BFGS-B, using the closed-form
+#'   gradient \eqn{-(w_i/v)\,\partial\,\mathrm{tr}(P\,I(x))/\partial x} at
+#'   \eqn{x_i}, where \eqn{P} is the matrix behind the directional derivative
+#'   and \eqn{v} the number of parameters of interest -- (ii) the package's
+#'   Newton weight step on the current support, (iii) merging of support points
+#'   closer than \code{merge_tol}, and (iv) adding the maximiser of the
+#'   directional derivative over the region, found by multi-start L-BFGS-B
+#'   (started from the support points, the box vertices and \code{n_starts}
+#'   random points, for every level combination of the factors). It stops when
+#'   that maximum is \eqn{\le} \code{eps0} and a random audit of \code{n_audit}
+#'   points (its best points polished locally) finds no violation. The
+#'   certificate (\code{max_d}, \code{efficiency_lower_bound}) is the largest
+#'   directional derivative over the points examined, not an exhaustive scan.
+#'   Factor covariates keep their levels. On this path \code{step_sequence} and
+#'   \code{merge} are ignored and \code{check_global} needs \code{global_step}.
+#'   Default \code{FALSE}: the grid path is unchanged.
+#' @param info_jacobian optional derivative of the per-point information with
+#'   respect to the continuous covariates, used by \code{continuous = TRUE}:
+#'   \code{function(x, theta)} (or \code{function(x)}) returning a
+#'   \eqn{k \times n_c} matrix for \code{info_vector} (\eqn{\partial f/\partial
+#'   x}) or a \eqn{k^2 \times n_c} matrix for \code{info_matrix} (the
+#'   column-major \eqn{\partial\,\mathrm{vec}\,I(x)/\partial x}), with
+#'   \eqn{n_c} the number of continuous covariates in \code{design_box} order.
+#'   Default \code{NULL}: a formula-style model uses its analytic derivative
+#'   and a user-supplied model function is differentiated by finite differences
+#'   (central inside the box, one-sided at its boundary).
+#' @param init_levels number of equally spaced levels per continuous covariate
+#'   of the coarse grid the continuous search starts from (default 3: the two
+#'   ends and the midpoint; raised automatically if the grid would have fewer
+#'   than \eqn{k + 1} points).
+#' @param init_points optional matrix of starting support points for the
+#'   continuous search (one row per point, one column per covariate, factor
+#'   columns holding levels), replacing the coarse grid.
+#' @param n_starts number of random starts of the multi-start maximisation of
+#'   the directional derivative (default 30, shared across the level
+#'   combinations of the factors), on top of the support points and the box
+#'   vertices.
+#' @param n_audit number of random points of the final audit (default 20000;
+#'   0 skips it). It costs one model evaluation per point: about a second per
+#'   million points for a formula-style model, one to two seconds per 100,000
+#'   points for a user-supplied model function.
+#' @param merge_tol continuous search only: two support points with identical
+#'   factor levels whose continuous coordinates, each scaled by the range of
+#'   its covariate, lie within this Euclidean distance are merged (default
+#'   \code{1e-3}).
 #' @param verbose print stage-by-stage progress.
 #' @return list with \code{support}, \code{weights}, \code{criterion},
 #'   \code{max_d}, \code{information} (the resulting per-observation information
@@ -263,6 +314,16 @@ owea <- function(prob, eps0 = 1e-6, max_outer = 2000L, verbose = FALSE,
 #'   For the multistage (\code{design_box}) path a \code{converged} design is
 #'   optimal only over the refined neighbourhood grids unless
 #'   \code{check_global = TRUE} certifies it over the whole box.
+#'   With \code{continuous = TRUE} the result also carries
+#'   \code{method = "continuous"}, \code{iterations}, \code{history} (one row
+#'   per iteration: time, support size, criterion, max sensitivity),
+#'   \code{maximiser} (the point attaining \code{max_d}), \code{n_audit},
+#'   \code{audit_max_d} and \code{jacobian} (\code{"analytic"},
+#'   \code{"finite differences"} or \code{"user"}); \code{global_max_d} /
+#'   \code{global_check} then repeat \code{max_d} / \code{converged}, since the
+#'   region-wide search is the check, \code{grid_sizes} is the size of the
+#'   coarse starting grid and \code{times} holds its solve time and the time of
+#'   the continuous search.
 #' @export
 optimal_design <- function(design_box = NULL, step_sequence = NULL,
                            info_vector = NULL, info_matrix = NULL,
@@ -281,7 +342,11 @@ optimal_design <- function(design_box = NULL, step_sequence = NULL,
                            global_max_points = 1e6,
                            max_iter = 100L, eps0 = 1e-6,
                            engine = c("classic", "active-set"), add_per_iter = 1L,
-                           accept_tol = 1e-9, verbose = FALSE) {
+                           accept_tol = 1e-9,
+                           continuous = FALSE, info_jacobian = NULL,
+                           init_levels = 3L, init_points = NULL,
+                           n_starts = 30L, n_audit = 20000L, merge_tol = 1e-3,
+                           verbose = FALSE) {
   # Wall clock for the WHOLE call, as exact_design() and compound_design() also
   # report it: the grid construction, the model evaluation over it and any
   # check_global verification are part of what the call costs, and timing only
@@ -572,6 +637,103 @@ optimal_design <- function(design_box = NULL, step_sequence = NULL,
                       cand$max_d, eps0), call. = FALSE)
     out$total_time <- proc.time()[3] - t_start
     return(out)
+  }
+
+  # ---- design box, continuous = TRUE: grid-free search over the region -------
+  # (see continuous.R).  Only the continuous covariates are searched; an
+  # all-factor box has nothing to search and is enumerated as usual below.
+  if (isTRUE(continuous) && any(!is_factor)) {
+    box_lo <- meta$lo; box_hi <- meta$hi
+    ev <- .cont_evaluator(info_mode, info_vector, info_matrix, theta_use, k, b,
+                          is_factor, box_lo, box_hi, info_jacobian)
+    if (!is.null(init_points)) {
+      # the user's starting support
+      X0 <- as.matrix(init_points); storage.mode(X0) <- "double"
+      if (ncol(X0) != length(is_factor))
+        stop(sprintf("'init_points' must have one column per covariate (%d).",
+                     length(is_factor)), call. = FALSE)
+      .validate_factor_columns(X0, is_factor, nlevels, "init_points")
+      cont <- which(!is_factor)
+      if (any(sweep(X0[, cont, drop = FALSE], 2, box_lo[cont], "<")) ||
+          any(sweep(X0[, cont, drop = FALSE], 2, box_hi[cont], ">")))
+        stop("'init_points' must lie inside the design box.", call. = FALSE)
+      init_sup <- X0; init_w <- rep(1 / nrow(X0), nrow(X0))
+      t_init <- 0; n_grid <- nrow(X0)
+    } else {
+      # the OWEA engine on a small coarse grid: init_levels levels per continuous
+      # covariate (raised if that gives fewer than k + 1 points) x factor levels
+      L <- max(2L, as.integer(init_levels))
+      nfac <- if (any(is_factor)) prod(nlevels[is_factor]) else 1
+      while (L^sum(!is_factor) * nfac < k + 1 && L < 50L) L <- L + 1L
+      X0 <- .cont_initial_grid(box_lo, box_hi, is_factor, nlevels, L)
+      sX <- scaled_of(X0)
+      t_init <- system.time(
+        g0 <- solve_prepared(X0, sX,
+                             .initial_support_idx(X0, info_mode, sX, k, infor0,
+                                                  init_method,
+                                                  ma_max_iter = ma_max_iter)))[3]
+      init_sup <- g0$support; init_w <- g0$weights; n_grid <- nrow(X0)
+      if (verbose)
+        cat(sprintf(paste0("  coarse start grid: %d levels per continuous covariate, ",
+                           "%d points  |S|=%-2d crit=%.6f conv=%s\n"),
+                    L, nrow(X0), nrow(g0$support), g0$criterion, g0$converged))
+    }
+    cs <- .cont_solve(ev, p, wb_use, infor0, ms, box_lo, box_hi, is_factor, nlevels,
+                      init_sup, init_w, eps0, max_iter, n_starts, n_audit,
+                      merge_tol, verbose)
+    info_out <- infor0 + .opt_infor_from_support(cs$support, cs$weights, b,
+                                                 info_mode, info_vector,
+                                                 info_matrix, theta_use, k)
+    dimnames(info_out) <- list(coef_names, coef_names)
+    out <- list(support = cs$support, weights = cs$weights,
+                criterion = cs$criterion, max_d = cs$max_d,
+                information = info_out, converged = cs$converged,
+                times = c(t_init, cs$time), grid_sizes = n_grid,
+                total_time = NA_real_,   # stamped below
+                box_lo = box_lo, box_hi = box_hi, p = p,
+                is_factor = is_factor, theta = theta,
+                coef_names = coef_names, link = model_link,
+                # the bound is over the points examined by the search + audit
+                efficiency_lower_bound = .efficiency_bound(p, cs$max_d, cs$criterion,
+                                                           nrow(wb_use)),
+                global_max_d = cs$max_d, global_check = cs$converged,
+                method = "continuous", iterations = cs$iterations,
+                history = cs$history, maximiser = cs$maximiser,
+                n_audit = as.integer(n_audit),
+                audit_max_d = if (is.null(cs$audit)) NA_real_ else cs$audit$max_d,
+                jacobian = if (!is.null(info_jacobian)) "user"
+                           else if (ev$analytic) "analytic" else "finite differences")
+    if (isTRUE(check_global)) {
+      # an optional grid scan on top of the search, at a step the user gives
+      if (is.null(global_step)) {
+        warning("optimal_design(): with continuous = TRUE, check_global = TRUE needs 'global_step' (there is no step_sequence to take it from); the grid check was skipped.",
+                call. = FALSE)
+      } else {
+        gstep <- .expand_stage_step(as.numeric(global_step), is_factor,
+                                    sum(!is_factor), length(is_factor))
+        npts  <- prod(ifelse(is_factor, nlevels, round((box_hi - box_lo) / gstep) + 1))
+        if (npts > global_max_points) {
+          warning(sprintf("optimal_design(): the whole-box grid check at step (%s) would evaluate %.0f design points (> global_max_points = %.0f); it was skipped.",
+                          paste(format(gstep[!is_factor]), collapse = ","), npts,
+                          global_max_points), call. = FALSE)
+        } else {
+          g <- global_md(cs$support, cs$weights, box_lo, box_hi, gstep)
+          out$grid_check_max_d <- g$max_d
+          out$global_max_d     <- max(g$max_d, cs$max_d)
+          out$global_check     <- out$global_max_d <= eps0
+          out$efficiency_lower_bound <- .efficiency_bound(p, out$global_max_d,
+                                                          cs$criterion, nrow(wb_use))
+        }
+      }
+    }
+    if (!cs$converged)
+      warning(sprintf("optimal_design(): the continuous search did NOT converge (max_d = %.3e > eps0 = %g); the design is not certified optimal. Increase max_iter or n_starts, or supply init_points.",
+                      cs$max_d, eps0), call. = FALSE)
+    out$total_time <- proc.time()[3] - t_start
+    return(out)
+  } else if (isTRUE(continuous)) {
+    message("optimal_design(): continuous = TRUE, but every covariate is a factor; ",
+            "the levels are enumerated as usual.")
   }
 
   # ---- design box (continuous and/or factor): multistage grid refinement ----

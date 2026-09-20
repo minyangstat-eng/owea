@@ -62,10 +62,22 @@
 #'   \code{step} grid is never built, so this works for any grid size.
 #'   \code{max_sensitivity} is \code{NA}, \code{is_optimal$value} is \code{NA}
 #'   (optimality is NOT assessed) and \code{maximiser} is \code{NULL}.
+#' @param continuous if \code{TRUE} (with \code{design_box}, no \code{step}
+#'   needed), the design space is the continuous region itself: the maximum
+#'   sensitivity is found by multi-start L-BFGS-B over the region (started from
+#'   the support points, the box vertices and \code{n_starts} random points,
+#'   for every level combination of the factors) plus a random audit of
+#'   \code{n_audit} points whose best points are polished locally -- the
+#'   grid-free counterpart of \code{optimal_design(continuous = TRUE)}. The
+#'   reported maximum is over the points examined, not an exhaustive scan.
+#'   Support points outside the box are flagged with a warning.
+#' @param n_starts,n_audit,info_jacobian as in \code{\link{optimal_design}}
+#'   (used only when \code{continuous = TRUE}).
 #' @details The design space is the finite set \code{candidate_grid(design_box,
 #'   step)} (or the \code{candidate_set}). Support points that are not among those
 #'   design points are allowed but flagged with a warning; choose \code{step} so
 #'   the design's support fall on the grid, or pass a \code{candidate_set}.
+#'   With \code{continuous = TRUE} the design space is the continuous region.
 #' @return a list with \code{is_optimal} -- itself a list with \code{value}
 #'   (logical, \code{max_sensitivity <= tol}) and \code{note} (a message stating
 #'   the \code{tol} used) -- plus \code{max_sensitivity} (the maximum directional
@@ -80,7 +92,9 @@
 #'   \code{information} (the resulting \eqn{k \times k} information matrix;
 #'   combined with any existing design), \code{maximiser} (the design-space point
 #'   attaining the maximum sensitivity), and echoes of \code{support},
-#'   \code{weights}, \code{p}, \code{tol}. Under \code{criterion_only} the
+#'   \code{weights}, \code{p}, \code{tol}, plus \code{method} (\code{"grid"},
+#'   \code{"candidate_set"} or \code{"continuous"}) and, for the continuous
+#'   mode, \code{n_audit} and \code{audit_max_d}. Under \code{criterion_only} the
 #'   sensitivity fields are placeholders: \code{is_optimal$value} and
 #'   \code{max_sensitivity} are \code{NA} and \code{maximiser} is \code{NULL}.
 #' @seealso \code{\link{optimal_design}}, \code{\link{candidate_grid}},
@@ -96,7 +110,9 @@ verify_optimality <- function(support, weights = NULL,
                               wb = NULL, subset = NULL, grad_g = NULL,
                               xi0_points = NULL, xi0_weights = numeric(0),
                               n0 = 0, n1 = 1, factor_levels = NULL, tol = 1e-6,
-                              max_points = 1e6, criterion_only = FALSE) {
+                              max_points = 1e6, criterion_only = FALSE,
+                              continuous = FALSE, n_starts = 30L,
+                              n_audit = 20000L, info_jacobian = NULL) {
   p <- .check_criterion(p)
 
   # accept an optimal_design()/exact_design() result directly
@@ -131,11 +147,26 @@ verify_optimality <- function(support, weights = NULL,
 
   # ---- design space X + factor metadata ----------------------------------
   use_set <- !is.null(candidate_set)
+  # continuous = TRUE: the design space is the continuous region itself (no
+  # grid); the maximum sensitivity is found by multi-start L-BFGS-B plus a
+  # random audit (continuous.R).  An all-factor box has nothing continuous to
+  # search and is enumerated as usual (a step is then irrelevant).
+  cont_mode <- FALSE
+  if (!use_set && isTRUE(continuous)) {
+    if (is.null(design_box))
+      stop("continuous = TRUE needs 'design_box'.", call. = FALSE)
+    m0 <- .parse_design_box(design_box)
+    if (any(!m0$is_factor)) cont_mode <- TRUE else if (is.null(step)) step <- 1
+  }
   if (use_set) {
     X <- as.matrix(candidate_set); storage.mode(X) <- "double"
     meta <- .factor_levels_to_meta(factor_levels, ncol(X))
     is_factor <- meta$is_factor; nlevels <- meta$nlevels
     lo <- NULL; hi <- NULL
+  } else if (cont_mode) {
+    m <- .parse_design_box(design_box)
+    is_factor <- m$is_factor; nlevels <- m$nlevels; lo <- m$lo; hi <- m$hi
+    by <- NULL
   } else {
     if (is.null(design_box) || is.null(step))
       stop("Supply a design space: 'candidate_set', or 'design_box' + 'step'.",
@@ -168,7 +199,7 @@ verify_optimality <- function(support, weights = NULL,
     }
     if (!criterion_only) X <- candidate_grid(design_box, step)
   }
-  have_X <- use_set || !criterion_only        # criterion_only box path: no grid
+  have_X <- use_set || (!criterion_only && !cont_mode)   # no grid otherwise
   if (have_X) storage.mode(X) <- "double"
 
   # ---- infer k and theta_use (mirrors optimal_design) --------------------
@@ -198,18 +229,30 @@ verify_optimality <- function(support, weights = NULL,
   # A box grid is a Cartesian product, so its nearest point is found coordinate
   # by coordinate (.offgrid_dmax) -- no scan over the N grid rows; an arbitrary
   # candidate_set has no such structure, so there the rows are searched.
-  dmax <- if (use_set) {
-    idx <- .nearest_idx(X, support)
-    vapply(seq_len(nrow(support)),
-           function(i) max(abs(support[i, ] - X[idx[i], ])), numeric(1))
-  } else .offgrid_dmax(support, lo, hi, by, is_factor, nlevels)
-  bad  <- which(dmax > 1e-6)
-  if (length(bad)) {
-    where <- if (use_set) "the candidate_set"
-             else "the design points generated by design_box + step"
-    warning(sprintf(paste0("%d support point(s) (e.g. #%d) are not among %s; verifying ",
-                           "the design as given anyway."), length(bad), bad[1], where),
-            call. = FALSE)
+  if (cont_mode) {
+    # the continuous region: the support must lie inside the box
+    cont <- which(!is_factor)
+    outside <- vapply(seq_len(nrow(support)), function(i)
+      any(support[i, cont] < lo[cont] - 1e-8 | support[i, cont] > hi[cont] + 1e-8),
+      logical(1))
+    if (any(outside))
+      warning(sprintf(paste0("%d support point(s) (e.g. #%d) lie outside the design ",
+                             "box; verifying the design as given anyway."),
+                      sum(outside), which(outside)[1]), call. = FALSE)
+  } else {
+    dmax <- if (use_set) {
+      idx <- .nearest_idx(X, support)
+      vapply(seq_len(nrow(support)),
+             function(i) max(abs(support[i, ] - X[idx[i], ])), numeric(1))
+    } else .offgrid_dmax(support, lo, hi, by, is_factor, nlevels)
+    bad  <- which(dmax > 1e-6)
+    if (length(bad)) {
+      where <- if (use_set) "the candidate_set"
+               else "the design points generated by design_box + step"
+      warning(sprintf(paste0("%d support point(s) (e.g. #%d) are not among %s; verifying ",
+                             "the design as given anyway."), length(bad), bad[1], where),
+              call. = FALSE)
+    }
   }
 
   # ---- assemble the C++-engine pieces (as in solve.R) --------------------
@@ -222,7 +265,16 @@ verify_optimality <- function(support, weights = NULL,
   # (skipped under criterion_only: it is the only part that needs the grid)
   oi <- .opt_infor_from_support(support, weights, b, info_mode, info_vector,
                                 info_matrix, theta_use, k)
-  ve <- if (criterion_only) NULL else {
+  ve <- if (criterion_only) NULL else if (cont_mode) {
+    # multi-start maximisation of the directional derivative over the region,
+    # plus the random audit; the maximiser is a point of the region
+    ev <- .cont_evaluator(info_mode, info_vector, info_matrix, theta_use, k, b,
+                          is_factor, lo, hi, info_jacobian)
+    s  <- .cont_max_sensitivity(ev, support, weights, p, as.matrix(wb_use),
+                                as.matrix(infor0), lo, hi, is_factor, nlevels,
+                                n_starts, n_audit)
+    list(max_d = s$max_d, x = s$x, audit = s$audit)
+  } else {
     scaled <- .scale_info(.build_info_data(X, info_mode, info_vector,
                                            info_matrix, theta_use)$info_data,
                           info_mode, b)
@@ -242,6 +294,14 @@ verify_optimality <- function(support, weights = NULL,
     list(value = NA,
          note  = paste0("criterion_only: the max-sensitivity check was ",
                         "skipped, so optimality was NOT assessed."))
+  else if (cont_mode)
+    list(value = isTRUE(ve$max_d <= tol),
+         note  = sprintf(paste0("'value' is TRUE when max_sensitivity <= tol over the ",
+                                "points examined (multi-start search over the ",
+                                "continuous region%s); tol = %g was used."),
+                         if (n_audit > 0) sprintf(" + a random audit of %d points",
+                                                  as.integer(n_audit)) else "",
+                         tol))
   else
     list(value = isTRUE(ve$max_d <= tol),
          note  = sprintf(paste0("'value' is TRUE when max_sensitivity <= tol; ",
@@ -254,6 +314,11 @@ verify_optimality <- function(support, weights = NULL,
        efficiency_lower_bound = if (criterion_only) NA_real_
                                 else .efficiency_bound(p, ve$max_d, crit, nrow(wb_use)),
        information     = M,
-       maximiser       = if (criterion_only) NULL else X[ve$index, ],
+       maximiser       = if (criterion_only) NULL else if (cont_mode) ve$x
+                         else X[ve$index, ],
+       method          = if (cont_mode) "continuous" else if (use_set) "candidate_set"
+                         else "grid",
+       n_audit         = if (cont_mode) as.integer(n_audit) else NA_integer_,
+       audit_max_d     = if (cont_mode && !is.null(ve$audit)) ve$audit$max_d else NA_real_,
        p = p, support = support, weights = weights, tol = tol)
 }

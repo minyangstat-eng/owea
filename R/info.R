@@ -37,6 +37,15 @@
   diag(k)
 }
 
+# Carry a model function's descriptive attributes (labels, link, and the
+# derivative / vectorised evaluators the continuous search uses) over to a
+# wrapper built around it.
+.copy_model_attrs <- function(to, from) {
+  for (a in c("coef_names", "link", "coding", "ncat", "jacobian", "vectorized"))
+    if (!is.null(attr(from, a))) attr(to, a) <- attr(from, a)
+  to
+}
+
 # Normalize a user info_matrix to the internal one-argument form info_matrix(x).
 # Accepts BOTH info_matrix(x) (theta captured in the closure) and
 # info_matrix(x, theta) (theta supplied to optimal_design / DesignProblem); the
@@ -52,7 +61,7 @@
       stop("'theta' is required when 'info_matrix' is defined as ",
            "function(x, theta).", call. = FALSE)
     force(fn); th <- as.numeric(theta)
-    function(x) fn(x, th)
+    .copy_model_attrs(function(x) fn(x, th), fn)
   } else {
     fn
   }
@@ -74,7 +83,7 @@
   if (!is.function(fn))
     stop("'info_vector' must be a function.", call. = FALSE)
   if (.info_vec_needs_theta(fn)) fn
-  else { force(fn); function(x, theta) fn(x) }
+  else { force(fn); .copy_model_attrs(function(x, theta) fn(x), fn) }
 }
 
 # Per-point k x k information matrix at x (used for existing designs / merging).

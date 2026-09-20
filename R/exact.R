@@ -136,6 +136,13 @@
 #'   \code{p},
 #'   \code{candidate_set}, \code{n_exchange_accepted}, \code{converged}
 #'   (inherited from the approximate solve) and \code{total_time}.
+#' @param continuous,info_jacobian,init_levels,n_starts,n_audit passed through
+#'   to \code{\link{optimal_design}}: with \code{continuous = TRUE} the
+#'   approximate reference design is found by the grid-free search over the
+#'   continuous covariates (no \code{step_sequence} needed), and the candidate
+#'   set of the rounding / exchange steps is that design's support (represented
+#'   exactly; \code{snap_support} is then ignored) together with the small
+#'   coarse grid the search started from.
 #' @seealso \code{\link{optimal_design}} for the approximate design.
 #' @export
 exact_design <- function(n,
@@ -158,6 +165,8 @@ exact_design <- function(n,
                          global_max_points = 1e6,
                          max_iter = 100L, eps0 = 1e-6, accept_tol = 1e-9,
                          merge = FALSE, merge_factor = 1.5, merge_atol = NULL,
+                         continuous = FALSE, info_jacobian = NULL,
+                         init_levels = 3L, n_starts = 30L, n_audit = 20000L,
                          verbose = FALSE) {
   t_start <- proc.time()[3]
 
@@ -228,6 +237,9 @@ exact_design <- function(n,
                    check_global = check_global, global_step = global_step,
                    global_max_points = global_max_points,
                    max_iter = max_iter, eps0 = eps0, accept_tol = accept_tol,
+                   continuous = continuous, info_jacobian = info_jacobian,
+                   init_levels = init_levels, n_starts = n_starts,
+                   n_audit = n_audit,
                    verbose = verbose),
     warning = function(w) {
       # muffle informational warnings that exact_design re-emits from its own
@@ -295,7 +307,13 @@ exact_design <- function(n,
     nstage <- if (is.list(step_sequence)) length(step_sequence)
               else if (is.matrix(step_sequence)) nrow(step_sequence)
               else length(step_sequence)
-    if (nstage == 0L) {
+    if (isTRUE(continuous) && any(!is_factor)) {
+      # continuous (grid-free) approximate design: its support is off-grid, so
+      # it is represented exactly, together with the small coarse grid the
+      # continuous search started from (global reach for the exchange steps)
+      X0 <- .cont_initial_grid(box_lo, box_hi, is_factor, nlevels, init_levels)
+      snap_support <- FALSE
+    } else if (nstage == 0L) {
       if (any(!is_factor))
         stop("'step_sequence' must contain at least one grid step for ",
              "continuous covariates.", call. = FALSE)
@@ -459,7 +477,8 @@ exact_design <- function(n,
                         converged = appr$converged,
                         efficiency_bound = approx_bound,
                         global_max_d = appr$global_max_d,
-                        global_check = appr$global_check),
+                        global_check = appr$global_check,
+                        method = appr$method),
     p            = as.integer(p),
     candidate_set = X,
     is_factor    = is_factor,

@@ -328,6 +328,105 @@ test_that("verify panel checks the ORIGINAL criterion at the finest step", {
   })
 })
 
+test_that("the continuous search flows through the app to the solver", {
+  skip_if_not_installed("shiny"); skip_if_not_installed("DT")
+  e <- app_env()
+  shiny::testServer(e$server, {
+    set_model(session, link = "identity", start = "none", search_mode = "continuous",
+              n_audit = 5000)
+    expect_true(is_continuous())
+    expect_true(spec()$continuous)
+    expect_null(spec()$step_sequence)
+    expect_equal(spec()$n_audit, 5000L)
+    expect_match(output$review_out$html, "continuous region", fixed = TRUE)
+    expect_match(output$review_out$html, "5,000 points", fixed = TRUE)
+    set.seed(1)
+    session$setInputs(compute = 1)
+    cc <- computed()
+    expect_null(cc$error)
+    expect_true(cc$args$continuous)
+    expect_equal(cc$args$n_audit, 5000L)
+    expect_null(cc$args$step_sequence)
+    expect_identical(cc$res$method, "continuous")
+    expect_equal(cc$res$n_audit, 5000L)
+    expect_true(cc$res$converged)
+    expect_match(output$status$html, "continuous search", fixed = TRUE)
+    expect_match(output$status$html, "5,000 points", fixed = TRUE)
+    # the R code behind the result reproduces the call
+    code <- output$code_txt
+    expect_match(code, "res <- optimal_design(", fixed = TRUE)
+    expect_match(code, "continuous = TRUE", fixed = TRUE)
+    expect_match(code, "n_audit    = 5000", fixed = TRUE)
+    expect_match(code, "verify_optimality(", fixed = TRUE)
+    expect_error(parse(text = code), NA)
+
+    # the verify panel checks over a grid at the typed step -- the grid check of
+    # a design from the continuous search
+    csv <- paste(c("dose,weight",
+                   paste(format(cc$res$support[, 1], digits = 15),
+                         format(cc$res$weights, digits = 15), sep = ",")),
+                 collapse = "\n")
+    session$setInputs(verify_manual = csv, verify_step = "0.02", verify_btn = 1)
+    v2 <- rv$verify$v
+    expect_false(inherits(v2, "owea_bad"))
+    expect_identical(v2$method, "grid")
+    expect_true(v2$is_optimal$value)
+    expect_match(rv$verify$space, "step(s) 0.02 (101 design points)", fixed = TRUE)
+    # the R code (rendered last) now ends with that same grid check
+    code2 <- output$code_txt
+    expect_match(code2, "res <- optimal_design(", fixed = TRUE)
+    expect_match(code2, "continuous = TRUE", fixed = TRUE)   # the computation
+    expect_match(code2, "verify_optimality(", fixed = TRUE)
+    expect_match(code2, "step\\s+= 0\\.02")                  # the check, on the grid
+    expect_error(parse(text = code2), NA)
+    # an unusable step is refused before anything runs; an empty box falls back
+    # to the suggested step
+    session$setInputs(verify_step = "abc", verify_btn = 2)
+    expect_true(inherits(rv$verify$v, "owea_bad"))
+    expect_match(rv$verify$v$msg, "positive grid step")
+    session$setInputs(verify_step = "", verify_btn = 3)
+    expect_false(inherits(rv$verify$v, "owea_bad"))
+    expect_identical(rv$verify$v$method, "grid")
+    expect_true(rv$verify$v$is_optimal$value)
+    # the verify panel uses the same continuous space
+    a <- owea:::.ui_solver_args(cc$sp, "verify", cc$theta, cc$p, cc$subset, cc$existing)
+    expect_true(a$continuous)
+
+    # back to the grid: the step box is used again
+    session$setInputs(search_mode = "grid")
+    expect_false(is_continuous())
+    expect_equal(spec()$step_sequence, list(0.25))
+  })
+})
+
+test_that("the simulation study's simple random sample works after a continuous search", {
+  skip_if_not_installed("shiny"); skip_if_not_installed("DT")
+  e <- app_env()
+  shiny::testServer(e$server, {
+    set_model(session, link = "identity", start = "none", search_mode = "continuous",
+              n_audit = 0, design_type = "exact", n_new = 12, seed = 1)
+    session$setInputs(compute = 1)
+    expect_null(computed()$error)
+    expect_identical(computed()$res$approx$method, "continuous")
+    session$setInputs(sim_open = 1, sim_theta_1 = 1, sim_theta_2 = 2,
+                      sim_sigma = 1, sim_nsim = 20, sim_seed = 1)
+    session$setInputs(run_sim = 1)
+    expect_false(inherits(rv$sim$exact, "error"))
+    session$setInputs(run_srs = 1)
+    expect_false(inherits(rv$sim$srs, "error"))        # used to fail: no grid step
+    expect_equal(sum(rv$sim$srs_design$counts), 12L)
+    expect_true(all(rv$sim$srs_design$support[, 1] >= -1 &
+                    rv$sim$srs_design$support[, 1] <= 1))
+    # the R code now includes the simulation study and the SRS comparison
+    code <- output$code_txt
+    expect_match(code, "res <- exact_design(", fixed = TRUE)
+    expect_match(code, "sim <- simulate_design(", fixed = TRUE)
+    expect_match(code, "sim_srs <- simulate_design(", fixed = TRUE)
+    expect_match(code, "SRS = sim_srs$mse", fixed = TRUE)
+    expect_error(parse(text = code), NA)
+  })
+})
+
 test_that("drawing theta from N(0,1) keeps the ordinal thresholds increasing", {
   skip_if_not_installed("shiny"); skip_if_not_installed("DT")
   e <- app_env()

@@ -38,6 +38,13 @@ print_result <- function(res, title = "Optimal design") {
   cat(sprintf("\n=== %s ===\n", title))
   cat(sprintf("|support| = %d    crit = %.10f    max sensitivity = %.3e  (0 at the optimum)    total time = %.3f s\n",
               nrow(S), res$criterion, res$max_d, res$total_time))
+  if (identical(res$method, "continuous"))
+    cat(sprintf(paste0("continuous search over the design region (no grid): %d iteration(s); ",
+                       "the max sensitivity is over the points examined (multi-start search",
+                       "%s)\n"),
+                res$iterations,
+                if (isTRUE(res$n_audit > 0))
+                  sprintf(" + a random audit of %d points", res$n_audit) else ""))
   cat("support point                    weight\n")
   for (i in seq_len(nrow(S))) {
     pt <- paste(.fmt_support_row(S[i, ], res$is_factor), collapse = ", ")

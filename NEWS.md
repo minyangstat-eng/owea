@@ -1,3 +1,76 @@
+# owea 0.5.0
+
+* New `continuous = TRUE` option of `optimal_design()` (and `exact_design()`):
+  the continuous covariates are searched in the CONTINUOUS design region
+  instead of on a grid, so no `step_sequence` is needed and the cost no longer
+  grows exponentially with the number of continuous covariates. The solver
+  starts from the OWEA solution on a small coarse grid (`init_levels` = 3
+  levels per continuous covariate times all factor levels, or user-supplied
+  `init_points`), then alternates: polishing of the support-point locations
+  (with the weights fixed, the criterion is minimised over all continuous
+  coordinates by L-BFGS-B, using the closed-form gradient
+  `-(w_i / v) d tr(P I(x)) / dx` at `x_i`, `P` being the matrix behind the
+  directional derivative); the package's own Newton weight step (active-set
+  engine) on the current support; merging of points closer than `merge_tol`;
+  and adding the maximiser of the directional derivative over the region,
+  found by multi-start L-BFGS-B (the support points, the box vertices and
+  `n_starts` random starts, for every level combination of the factors). It
+  stops when that maximum is at most `eps0` and a random audit of `n_audit`
+  points (default 20,000; its best points polished locally) finds no
+  violation. Factor covariates keep their levels. Works for D- and
+  A-optimality, any `wb` / `subset` / `grad_g`, and an existing design. The
+  certificate (`max_d`, `efficiency_lower_bound`) is the largest directional
+  derivative over the points examined, not an exhaustive scan; `check_global`
+  still runs a grid scan on top when `global_step` is given. The result
+  carries `method = "continuous"`, `iterations`, `history`, `maximiser`,
+  `n_audit`, `audit_max_d` and `jacobian`.
+* Derivatives of the per-point information with respect to the continuous
+  covariates: formula-style models (`link` + terms) now carry an analytic
+  Jacobian and a vectorised evaluator (attributes `"jacobian"` and
+  `"vectorized"` of `model_info_vector()`'s function); a user-supplied
+  `info_vector` / `info_matrix` is differentiated by finite differences, or
+  you can pass your own `info_jacobian`.
+* `verify_optimality(continuous = TRUE)`: the grid-free counterpart of the
+  check -- the maximum sensitivity over the continuous region by multi-start
+  search plus the random audit (no `step` needed); returns `method`,
+  `n_audit` and `audit_max_d`.
+* App: when a covariate is continuous, the model step offers "How to search
+  the continuous covariates": on a grid (enter the grid steps, as before) or
+  directly in the continuous region (no steps), with the number of random
+  audit points as an input (default 20,000; 0 = no audit), used by both the
+  design search and the verify panel. The review, results and verify panels
+  describe the continuous certificate accordingly.
+* App: the verify panel of a single-criterion approximate design checks the
+  equivalence theorem over a grid of the design box at step(s) you type
+  (prefilled with the finest step of a grid computation, or one fortieth of
+  each range after a continuous search) -- so a design found by the continuous
+  search can be checked on a grid -- with the usual large-grid safeguard; the
+  result names the grid it was checked over.
+* App: the results page ends with an "R code for this analysis" section and a
+  download button: a runnable script with the exact `optimal_design()` /
+  `exact_design()` call the app made and, for approximate designs, the
+  `verify_optimality()` check at the grid step entered in the verify panel;
+  for an exact design whose simulation study has been run, the script also
+  repeats the study with `simulate_design()` -- the exact design and every
+  design it was compared with (the simple random sample, a custom design),
+  pooled with any first stage -- and tabulates the mean squared errors.
+* `simulate_design()` gains `existing` and `obs`: a first stage pooled with the
+  design, as the app's simulation study does for a multistage design -- an
+  existing design whose responses are simulated, or an observed data set whose
+  responses are kept.
+* Bug fix (app): after a continuous search, the simulation study's simple
+  random sample failed with "each grid step must be a scalar ..." because it
+  drew the runs from a grid the continuous search does not have. The sample is
+  now drawn uniformly from the continuous region (factors uniformly over their
+  levels); after a grid computation it is drawn from the finest-step grid as
+  before.
+* Benchmarks (logistic model, D- and A-optimality): three covariates on
+  [-2,2] x [-1,1] x [-3,3] -- the continuous search reaches the grid path's
+  designs (marginally better criteria) in 0.3-0.5 s versus 2.4 s for the
+  grid path with steps 0.1, 0.01 and a 0.05 global check; six covariates on
+  [-2,2]^6, where a 0.05 grid would have 81^6 points -- 1 to 3.5 s.
+* The default `continuous = FALSE` path is unchanged.
+
 # owea 0.4.1
 
 * Efficiencies are now reported as guaranteed lower bounds relative to the TRUE

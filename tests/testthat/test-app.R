@@ -80,6 +80,262 @@ test_that(".ui_parse_steps parses the grid step(s) text box", {
     "step sequence of positive numbers")
 })
 
+test_that(".ui_design_box / .ui_model_spec / .ui_solver_args support the continuous search", {
+  covs <- list(list(name = "A", type = "factor", nlevels = 3),
+               list(name = "B", type = "continuous", lo = 0, hi = 1, steps = numeric(0)))
+  expect_error(owea:::.ui_design_box(covs), "step sequence")     # the grid mode still needs steps
+  db <- owea:::.ui_design_box(covs, continuous = TRUE)
+  expect_equal(db$design_box, list(A = 3L, B = c(0, 1)))
+  expect_null(db$step_sequence)
+  expect_identical(db$finest, numeric(0))
+  expect_true(db$continuous)
+
+  sp <- owea:::.ui_model_spec(covs, link = "identity", continuous = TRUE)
+  expect_true(sp$continuous)
+  expect_equal(sp$n_audit, 20000L)                 # the solver default
+  o <- owea:::.ui_solver_args(sp, "optimal")
+  expect_true(o$continuous); expect_null(o$step_sequence)
+  expect_equal(o$n_audit, 20000L)
+  e <- owea:::.ui_solver_args(sp, "exact", n = 10)
+  expect_true(e$continuous); expect_equal(e$n, 10L)
+  v <- owea:::.ui_solver_args(sp, "verify")
+  expect_true(v$continuous); expect_null(v$step); expect_null(v$max_points)
+  expect_equal(v$n_audit, 20000L)
+  expect_true(is.na(owea:::.ui_verify_points(sp)))
+  expect_equal(owea:::.ui_grid_sizes(covs, continuous = TRUE), 9)   # 3 levels x 3^1 start grid
+
+  # the audit size is the user's, for every target; bad values fall back
+  sp5 <- owea:::.ui_model_spec(covs, link = "identity", continuous = TRUE, n_audit = 5000)
+  expect_equal(sp5$n_audit, 5000L)
+  expect_equal(owea:::.ui_solver_args(sp5, "optimal")$n_audit, 5000L)
+  expect_equal(owea:::.ui_solver_args(sp5, "verify")$n_audit, 5000L)
+  expect_equal(owea:::.ui_model_spec(covs, link = "identity", continuous = TRUE,
+                                     n_audit = 0)$n_audit, 0L)
+  expect_equal(owea:::.ui_model_spec(covs, link = "identity", continuous = TRUE,
+                                     n_audit = NA)$n_audit, 20000L)
+  expect_equal(owea:::.ui_model_spec(covs, link = "identity", continuous = TRUE,
+                                     n_audit = -3)$n_audit, 20000L)
+
+  # the grid mode is unchanged: no 'continuous' / 'n_audit' argument reaches the solver
+  sp0 <- owea:::.ui_model_spec(
+    list(list(name = "x", type = "continuous", lo = -1, hi = 1, steps = 0.25)),
+    link = "identity", n_audit = 5000)
+  expect_false(sp0$continuous)
+  expect_true(is.na(sp0$n_audit))
+  expect_false(any(c("continuous", "n_audit") %in% names(owea:::.ui_solver_args(sp0, "optimal"))))
+  expect_false(any(c("continuous", "n_audit") %in% names(owea:::.ui_solver_args(sp0, "verify"))))
+})
+
+test_that("an explicit grid check overrides the spec's design space for 'verify'", {
+  covs <- list(list(name = "A", type = "factor", nlevels = 3),
+               list(name = "dose", type = "continuous", lo = -1, hi = 1))
+  spc <- owea:::.ui_model_spec(covs, link = "identity", continuous = TRUE, n_audit = 5000)
+  v <- owea:::.ui_solver_args(spc, "verify", verify_step = 0.05)
+  expect_equal(v$step, 0.05)
+  expect_identical(v$max_points, Inf)
+  expect_false(any(c("continuous", "n_audit") %in% names(v)))
+  # per-covariate steps pass through; bad steps are rejected
+  expect_equal(owea:::.ui_solver_args(spc, "verify", verify_step = c(0.1))$step, 0.1)
+  expect_error(owea:::.ui_solver_args(spc, "verify", verify_step = -1), "positive")
+  expect_error(owea:::.ui_solver_args(spc, "verify", verify_step = numeric(0)), "positive")
+  # the grid count for the gate: 3 levels x (2 / 0.05 + 1)
+  expect_equal(owea:::.ui_verify_points(spc, step = 0.05), 3 * 41)
+  expect_true(is.na(owea:::.ui_verify_points(spc)))                 # continuous: no grid
+  expect_true(is.na(owea:::.ui_verify_points(spc, step = 0)))       # unusable step
+  # a grid spec: the override replaces its finest step
+  spg <- owea:::.ui_model_spec(
+    list(list(name = "dose", type = "continuous", lo = -1, hi = 1, steps = c(0.5, 0.25))),
+    link = "identity")
+  expect_equal(owea:::.ui_solver_args(spg, "verify")$step, 0.25)
+  expect_equal(owea:::.ui_solver_args(spg, "verify", verify_step = 0.01)$step, 0.01)
+  expect_equal(owea:::.ui_verify_points(spg, step = 0.01), 201)
+  # the suggested step: the finest step of a grid spec, range / 40 otherwise
+  expect_equal(owea:::.ui_verify_step_default(spg), "0.25")
+  expect_equal(owea:::.ui_parse_steps(owea:::.ui_verify_step_default(spc)), 0.05)
+  # and the grid check certifies a design from the continuous search
+  set.seed(2)
+  r <- do.call(optimal_design, owea:::.ui_solver_args(spc, "optimal", p = 0))
+  chk <- suppressWarnings(do.call(verify_optimality,
+    c(list(support = r$support, weights = r$weights),
+      owea:::.ui_solver_args(spc, "verify", p = 0, verify_step = 0.02))))
+  expect_identical(chk$method, "grid")
+  expect_true(chk$is_optimal$value)
+})
+
+test_that(".ui_srs_design draws a simple random sample from a grid or the continuous region", {
+  spg <- owea:::.ui_model_spec(
+    list(list(name = "A", type = "factor", nlevels = 2),
+         list(name = "x", type = "continuous", lo = -1, hi = 1, steps = 0.5)),
+    link = "identity")
+  set.seed(1)
+  d <- owea:::.ui_srs_design(spg, 30)
+  expect_equal(sum(d$counts), 30L)
+  expect_equal(d$pool_size, 10)                       # 2 levels x 5 grid values
+  expect_true(all(d$support[, 2] %in% seq(-1, 1, by = 0.5)))
+  expect_true(all(d$support[, 1] %in% 1:2))
+  # a continuous search has no grid: uniform draws from the region
+  spc <- owea:::.ui_model_spec(
+    list(list(name = "A", type = "factor", nlevels = 2),
+         list(name = "x", type = "continuous", lo = -1, hi = 1)),
+    link = "identity", continuous = TRUE)
+  set.seed(2)
+  dc <- owea:::.ui_srs_design(spc, 30)
+  expect_equal(sum(dc$counts), 30L)
+  expect_true(is.na(dc$pool_size))
+  expect_true(all(dc$support[, 2] >= -1 & dc$support[, 2] <= 1))
+  expect_true(all(dc$support[, 1] %in% 1:2))
+  expect_equal(colnames(dc$support), c("A", "x"))
+  expect_error(owea:::.ui_srs_design(spc, 0), "n >= 1")
+})
+
+test_that("simulate_design(existing = , obs = ) pools a first stage like the app", {
+  sp  <- owea:::.ui_model_spec(
+    list(list(name = "dose", type = "continuous", lo = -1, hi = 1, steps = 0.25)),
+    link = "identity")
+  sup <- cbind(c(-1, 1)); cnt <- c(10L, 10L); th <- c(1, 2)
+  ex  <- list(points = cbind(c(-1, 1)), weights = c(0.5, 0.5), n0 = 40)
+  a <- owea:::.ui_simulate(sp, th, 1, sup, cnt, existing = ex, nsim = 30, seed = 1)
+  b <- simulate_design(sup, cnt, link = "identity", x = 1, design_box = sp$design_box,
+                       theta = th, nsim = 30, seed = 1,
+                       existing = list(points = ex$points, counts = c(20L, 20L)))
+  expect_equal(b$N, 60L)
+  expect_equal(b$n_existing, 40L)
+  expect_equal(b$estimates, a$estimates)
+  expect_equal(b$mse, a$mse)
+  # weights + n0 are accepted too
+  b2 <- simulate_design(sup, cnt, link = "identity", x = 1, design_box = sp$design_box,
+                        theta = th, nsim = 30, seed = 1, existing = ex)
+  expect_equal(b2$mse, a$mse)
+  # an observed first stage keeps its responses
+  d1 <- data.frame(dose = rep(c(-1, 0, 1), each = 4),
+                   y    = c(rep(0, 4), rep(1, 4), rep(2, 4)))
+  o <- simulate_design(sup, cnt, link = "identity", x = 1, design_box = sp$design_box,
+                       theta = th, nsim = 20, seed = 3, obs = list(data = d1, response = "y"))
+  expect_equal(o$N, 32L)
+  expect_equal(o$n_existing, 12L)
+  expect_error(simulate_design(sup, cnt, link = "identity", x = 1,
+                               design_box = sp$design_box, theta = th, nsim = 1,
+                               existing = list(points = ex$points, counts = c(20L, 20L))),
+               "nsim >= 2")
+  expect_error(simulate_design(sup, cnt, link = "identity", x = 1,
+                               design_box = sp$design_box, theta = th, nsim = 5,
+                               existing = list(points = ex$points)),
+               "counts")
+})
+
+test_that(".ui_r_code adds a runnable simulation block for an exact design", {
+  sp <- owea:::.ui_model_spec(
+    list(list(name = "dose", type = "continuous", lo = -1, hi = 1)),
+    link = "logit", continuous = TRUE, n_audit = 0)
+  args <- owea:::.ui_solver_args(sp, "exact", theta = c(0.2, 1), p = 0, n = 12)
+  args$seed <- 1L
+  set.seed(1)
+  res <- do.call(exact_design, args)
+  set.seed(5)
+  srs <- owea:::.ui_srs_design(sp, 12)
+  sim <- list(theta = c(0.2, 1), sigma = NULL, nsim = 20L, seed = 3L,
+              existing = NULL, obs = NULL, designs = list(SRS = srs))
+  code <- owea:::.ui_r_code(args, "exact", sim = sim)
+  expect_match(code, "set.seed(1)", fixed = TRUE)         # the continuous search is seeded
+  expect_match(code, "res <- exact_design(", fixed = TRUE)
+  expect_match(code, "theta_true <- c(0.2, 1)", fixed = TRUE)
+  expect_match(code, "sim <- simulate_design(", fixed = TRUE)
+  expect_match(code, "srs_support <- rbind(", fixed = TRUE)
+  expect_match(code, "sim_srs <- simulate_design(", fixed = TRUE)
+  expect_match(code, "mse <- rbind(`Exact design` = sim$mse, SRS = sim_srs$mse)", fixed = TRUE)
+  expect_error(parse(text = code), NA)
+  env <- new.env(parent = globalenv())
+  eval(parse(text = code), envir = env)
+  expect_equal(env$sim$N, 12L)
+  expect_true(is.matrix(env$mse))
+  expect_equal(rownames(env$mse), c("Exact design", "SRS"))
+  # the script's design and simulation are the app's own
+  expect_equal(env$res$counts, res$counts)
+  ref <- simulate_design(res, link = "logit", x = 1, design_box = sp$design_box,
+                         theta = c(0.2, 1), nsim = 20, seed = 3)
+  expect_equal(env$sim$mse, ref$mse)
+  # with an existing first stage the pooled call is emitted
+  sim2 <- sim
+  sim2$existing <- list(points = cbind(c(-1, 1)), counts = c(5L, 5L))
+  code2 <- owea:::.ui_r_code(args, "exact", sim = sim2)
+  expect_match(code2, "existing\\s+= list\\(points = rbind\\(")
+  expect_error(parse(text = code2), NA)
+  # an observed first stage is embedded as CSV text
+  sim3 <- sim
+  sim3$obs <- list(data = data.frame(dose = c(-1, 0, 1, 1), y = c(0, 1, 1, 0)), response = "y")
+  code3 <- owea:::.ui_r_code(args, "exact", sim = sim3)
+  expect_match(code3, "obs_data <- read.csv(text = c(", fixed = TRUE)
+  expect_match(code3, "obs\\s+= list\\(data = obs_data, response = \"y\"\\)")
+  expect_error(parse(text = code3), NA)
+  env3 <- new.env(parent = globalenv())
+  eval(parse(text = code3), envir = env3)
+  expect_equal(env3$sim$n_existing, 4L)
+})
+
+test_that(".ui_r_code writes a runnable script that reproduces the app's call", {
+  covs <- list(list(name = "my dose", type = "continuous", lo = -1, hi = 1),
+               list(name = "grp", type = "factor", nlevels = 2))
+  sp <- owea:::.ui_model_spec(covs, interactions = list(c(1, 2)), link = "logit",
+                              continuous = TRUE, n_audit = 5000)
+  th <- c(0.2, 1, -0.5, 0.3)
+  args  <- owea:::.ui_solver_args(sp, "optimal", theta = th, p = 1)
+  vargs <- owea:::.ui_solver_args(sp, "verify", theta = th, p = 1)
+  code <- owea:::.ui_r_code(args, "optimal", verify_args = vargs)
+  expect_match(code, "library(owea)", fixed = TRUE)
+  expect_match(code, "res <- optimal_design(", fixed = TRUE)
+  expect_match(code, "continuous = TRUE", fixed = TRUE)
+  expect_match(code, "n_audit    = 5000", fixed = TRUE)
+  expect_match(code, "`my dose` = c(-1, 1)", fixed = TRUE)      # non-syntactic name back-ticked
+  expect_match(code, "v <- verify_optimality(", fixed = TRUE)
+  expect_error(parse(text = code), NA)
+  # running the script gives the same design as the app's own call
+  env <- new.env(parent = globalenv())
+  eval(parse(text = code), envir = env)
+  set.seed(1)
+  direct <- do.call(optimal_design, args)
+  expect_equal(env$res$criterion, direct$criterion, tolerance = 1e-6)
+  expect_true(env$v$is_optimal$value)
+
+  # an exact design: exact_design(), n and seed in the call, no verify block
+  eargs <- owea:::.ui_solver_args(sp, "exact", theta = th, p = 1, n = 12)
+  eargs$seed <- 7L
+  ecode <- owea:::.ui_r_code(eargs, "exact")
+  expect_match(ecode, "res <- exact_design(", fixed = TRUE)
+  expect_match(ecode, "n          = 12", fixed = TRUE)
+  expect_match(ecode, "seed       = 7", fixed = TRUE)
+  expect_false(grepl("verify_optimality", ecode, fixed = TRUE))
+  expect_error(parse(text = ecode), NA)
+
+  # the grid path and an existing design: step_sequence and rbind() matrices
+  spg <- owea:::.ui_model_spec(
+    list(list(name = "dose", type = "continuous", lo = -1, hi = 1, steps = c(0.5, 0.1))),
+    link = "identity")
+  ex <- list(points = cbind(c(-1, 0.5)), weights = c(0.5, 0.5), n0 = 10, n1 = 20)
+  gargs <- owea:::.ui_solver_args(spg, "optimal", p = 0, existing = ex)
+  gcode <- owea:::.ui_r_code(gargs, "optimal")
+  expect_match(gcode, "step_sequence = list(0.5, 0.1)", fixed = TRUE)
+  expect_match(gcode, "xi0_points    = rbind(c(-1),", fixed = TRUE)
+  expect_false(grepl("set.seed", gcode, fixed = TRUE))
+  expect_error(parse(text = gcode), NA)
+  env2 <- new.env(parent = globalenv())
+  suppressWarnings(eval(parse(text = gcode), envir = env2))
+  expect_true(is.finite(env2$res$criterion))
+})
+
+test_that("the continuous spec reproduces a direct optimal_design(continuous = TRUE) call", {
+  covs <- list(list(name = "dose", type = "continuous", lo = -1, hi = 1))
+  sp <- owea:::.ui_model_spec(covs, link = "logit", continuous = TRUE)
+  set.seed(1)
+  a <- do.call(optimal_design,
+               owea:::.ui_solver_args(sp, "optimal", theta = c(0.2, 1), p = 0))
+  expect_identical(a$method, "continuous")
+  expect_true(a$converged)
+  b <- suppressWarnings(optimal_design(design_box = list(dose = c(-1, 1)),
+                                       link = "logit", x = 1, theta = c(0.2, 1), p = 0,
+                                       step_sequence = c(0.2, 0.05, 0.01)))
+  expect_equal(a$criterion, b$criterion, tolerance = 1e-4)
+})
+
 test_that(".ui_design_box rejects bad ranges / levels", {
   expect_error(owea:::.ui_design_box(list(
     list(name = "A", type = "continuous", lo = 1, hi = 0, steps = 0.1))),

@@ -125,6 +125,7 @@ ui <- fluidPage(
           7,
           numericInput("ncov", "Number of covariates", value = 1, min = 1,
                        max = MAX_COV, step = 1),
+          uiOutput("search_ui"),
           uiOutput("cov_ui"),
           uiOutput("interaction_ui"),
           uiOutput("quadratic_ui")
@@ -265,7 +266,9 @@ ui <- fluidPage(
                  br(), verbatimTextOutput("model_txt"))
       ),
       uiOutput("eff_panel"),
-      uiOutput("post_result")
+      uiOutput("post_result"),
+      # last, so it can include every step above (the design and its check)
+      uiOutput("code_panel")
     ),
 
     # =====================================================================
@@ -448,11 +451,17 @@ server <- function(input, output, session) {
           fluidRow(
             column(4, numericInput(paste0("cov_lo_", i), "low",  value = -1)),
             column(4, numericInput(paste0("cov_hi_", i), "high", value = 1)),
-            column(4, textInput(paste0("cov_step_", i), "grid step(s)",
-                                value = "0.1", placeholder = "e.g. 0.5, 0.1"))),
-          helpText("One number, or a comma-separated step sequence from coarse ",
-                   "to fine (e.g. 0.5, 0.1, 0.02): the whole range is searched ",
-                   "at the coarsest step, then refined locally at each finer one.")),
+            # the grid step(s) only matter when the continuous covariates are
+            # searched on a grid; the continuous search needs none
+            column(4, conditionalPanel(
+              "input.search_mode != 'continuous'",
+              textInput(paste0("cov_step_", i), "grid step(s)",
+                        value = "0.1", placeholder = "e.g. 0.5, 0.1")))),
+          conditionalPanel(
+            "input.search_mode != 'continuous'",
+            helpText("One number, or a comma-separated step sequence from coarse ",
+                     "to fine (e.g. 0.5, 0.1, 0.02): the whole range is searched ",
+                     "at the coarsest step, then refined locally at each finer one."))),
         conditionalPanel(
           sprintf("input.cov_type_%d == 'factor'", i),
           numericInput(paste0("cov_nlev_", i), "number of levels", value = 2,
@@ -480,6 +489,38 @@ server <- function(input, output, session) {
 
   has_factor <- reactive(
     any(vapply(covariates(), function(cv) identical(cv$type, "factor"), logical(1))))
+  has_continuous <- reactive(
+    any(vapply(covariates(), function(cv) identical(cv$type, "continuous"), logical(1))))
+
+  # how the continuous covariates are searched: on a grid of steps (the classic
+  # path) or directly in the continuous region -- optimal_design(continuous =
+  # TRUE), which needs no grid steps and does not grow with the number of
+  # continuous covariates
+  is_continuous <- reactive(has_continuous() &&
+                            identical(input$search_mode %||% "grid", "continuous"))
+  output$search_ui <- renderUI({
+    if (!has_continuous()) return(NULL)
+    tagList(
+      radioButtons("search_mode", "How to search the continuous covariates",
+                   choices = c("On a grid — enter the grid step(s) below" = "grid",
+                               "Directly in the continuous region — no grid steps needed" = "continuous"),
+                   selected = isolate(input$search_mode) %||% "grid"),
+      conditionalPanel(
+        "input.search_mode == 'continuous'",
+        helpText("The continuous search starts from a coarse grid with three ",
+                 "levels per continuous covariate, moves the support points to ",
+                 "their best locations, and adds points where the sensitivity is ",
+                 "largest. Optimality is certified by a multi-start search of the ",
+                 "region plus a random audit of the points below rather than by a ",
+                 "grid scan. Recommended when several covariates are continuous, ",
+                 "where a fine grid grows too large."),
+        numericInput("n_audit", "Random audit points (0 = no audit)",
+                     value = isolate(input$n_audit) %||% 20000, min = 0, step = 1000),
+        helpText("The audit evaluates the sensitivity at this many random points of ",
+                 "the region after the search converges, as a safeguard against a ",
+                 "missed maximum; each point costs one model evaluation (about a ",
+                 "second per million points for the built-in models).")))
+  })
 
   # the factor coding only exists when there IS a factor (item 2)
   output$coding_ui <- renderUI({
@@ -521,7 +562,9 @@ server <- function(input, output, session) {
     owea:::.ui_model_spec(covariates(), interactions = inter, quadratics = quad,
                           link = input$link, ncat = ncat,
                           coding = if (has_factor()) input$coding %||% "zero-sum"
-                                   else "zero-sum")
+                                   else "zero-sum",
+                          continuous = is_continuous(),
+                          n_audit = input$n_audit %||% 20000)
   })
   spec_ok    <- reactive(tryCatch({ spec(); NULL }, error = conditionMessage))
   coef_names <- reactive(tryCatch(owea:::.ui_coef_names(spec()),
@@ -609,7 +652,7 @@ server <- function(input, output, session) {
   # candidate-set size at each stage of the step sequence (coarsest first);
   # grid_ok remembers the counts the user already agreed to proceed with, so
   # the warning re-arms only when the grid inputs actually change
-  grid_sizes <- reactive(tryCatch(owea:::.ui_grid_sizes(covariates()),
+  grid_sizes <- reactive(tryCatch(owea:::.ui_grid_sizes(covariates(), is_continuous()),
                                   error = function(e) NULL))
   grid_ok <- reactiveVal(NULL)
 
@@ -920,7 +963,13 @@ server <- function(input, output, session) {
       sprintf("Model: %s%s", names(LINKS)[match(sp$link, LINKS)],
               if (is.null(sp$ncat)) "" else sprintf(" with %d categories", sp$ncat)),
       sprintf("Covariates: %s", paste(names(sp$design_box), collapse = ", ")),
-      if (length(gs) && is.finite(gs[1]))
+      if (isTRUE(sp$continuous))
+        sprintf(paste0("Design space: the continuous region is searched directly ",
+                       "(no grid; the search starts from a coarse %s-point grid; ",
+                       "random audit of %s points)"),
+                format(round(gs[1]), big.mark = ","),
+                format(sp$n_audit, big.mark = ","))
+      else if (length(gs) && is.finite(gs[1]))
         sprintf("Candidate set: %s design points%s",
                 format(round(gs[1]), big.mark = ","),
                 if (length(gs) > 1L) " (first step of the step sequence)" else ""),
@@ -1001,8 +1050,22 @@ server <- function(input, output, session) {
       return(div(class = "alert alert-danger",
                  tags$b("Could not compute: "), c$error))
     conv <- isTRUE(c$res$converged)
-    msg <- if (conv) "Design computed and verified optimal on the searched grid."
-           else "Computed, but optimality was not fully certified — try a finer grid step."
+    # the continuous search certifies over the points it examined (multi-start
+    # search + random audit), the grid path over the searched grid
+    cont <- isTRUE(c$sp$continuous)
+    n_au <- if (cont && !is.null(c$res$n_audit)) c$res$n_audit else 20000L
+    msg <- if (conv && cont)
+      sprintf(paste0("Design computed by the continuous search and verified optimal over ",
+                     "the points examined (a multi-start search of the region%s)."),
+              if (n_au > 0) sprintf(" plus a random audit of %s points",
+                                    format(n_au, big.mark = ","))
+              else "; no random audit was requested")
+    else if (conv) "Design computed and verified optimal on the searched grid."
+    else if (cont)
+      paste0("Computed, but optimality was not fully certified — the continuous ",
+             "search stopped short. In the R package, raise n_starts or max_iter, ",
+             "or supply init_points.")
+    else "Computed, but optimality was not fully certified — try a finer grid step."
     extra <- if (length(c$warns))
       tags$ul(lapply(unique(.friendly_warn(c$warns)), tags$li)) else NULL
     # certified efficiency bound (Becker & Yang, Theorems 4.5 / 4.6): valid
@@ -1010,9 +1073,11 @@ server <- function(input, output, session) {
     eb <- if (c$exact) NULL else c$res$efficiency_lower_bound
     cert <- if (!is.null(eb) && is.finite(eb))
       tags$p(tags$small(sprintf(paste0(
-        "Efficiency: at least %.4f%% of the optimum over the searched grid ",
+        "Efficiency: at least %.4f%% of the optimum over %s ",
         "(a guaranteed lower bound computed from the max sensitivity, valid even ",
-        "when convergence was not reached)."), 100 * eb)))
+        "when convergence was not reached)."), 100 * eb,
+        if (cont) "the points examined by the search and the audit"
+        else "the searched grid")))
     div(class = if (conv) "alert alert-success" else "alert alert-warning",
         tags$b(msg), cert, extra)
   })
@@ -1103,6 +1168,63 @@ server <- function(input, output, session) {
       old <- options(digits = 15); on.exit(options(old))
       utils::write.csv(design_df(), file, row.names = FALSE)
     })
+  # ---- the R code behind the result (rendered LAST on the results page) ----
+  # the computation the app made and, for an approximate design, the
+  # equivalence-theorem check at the grid step entered in the verify panel
+  # for an exact design whose simulation study has been run: the study's
+  # settings and the designs it compared, so the script can repeat it with
+  # simulate_design()
+  sim_code_info <- reactive({
+    c <- computed(); s <- rv$sim
+    if (!isTRUE(c$exact) || is.null(s$exact) || inherits(s$exact, "error")) return(NULL)
+    theta_true <- vapply(seq_along(c$coef_names),
+      function(i) as.numeric(input[[paste0("sim_theta_", i)]] %||% 0), numeric(1))
+    ex <- if (is.null(sim_obs())) c$existing else NULL
+    keep <- function(res, dsg) if (!is.null(res) && !inherits(res, "error")) dsg else NULL
+    list(theta = theta_true,
+         sigma = if (identical(c$sp$link, "identity")) as.numeric(input$sim_sigma %||% 1) else NULL,
+         nsim  = as.integer(input$sim_nsim %||% 1000),
+         seed  = as.integer(input$sim_seed %||% 1),
+         existing = if (!is.null(ex))
+           list(points = ex$points,
+                counts = ex$counts %||% owea:::.apportion(ex$weights, as.integer(ex$n0)))
+           else NULL,
+         obs = sim_obs(),
+         designs = Filter(Negate(is.null),
+                          list(SRS = keep(s$srs, s$srs_design),
+                               Custom = keep(s$custom, s$custom_design))))
+  })
+
+  r_code <- reactive({
+    c <- computed(); req(is.null(c$error))
+    vargs <- if (c$exact) NULL else {
+      se <- verify_step_eff(c)
+      tryCatch(owea:::.ui_solver_args(c$sp, "verify", c$theta, c$p, c$subset,
+                                      c$existing,
+                                      verify_step = if (se$ok) se$step else NULL),
+               error = function(e) NULL)
+    }
+    owea:::.ui_r_code(c$args, if (c$exact) "exact" else "optimal", verify_args = vargs,
+                      sim = sim_code_info())
+  })
+  output$code_txt <- renderText(r_code())
+  output$dl_code <- downloadHandler(
+    filename = function() "owea_design.R",
+    content  = function(file) writeLines(r_code(), file))
+  output$code_panel <- renderUI({
+    c <- computed(); req(is.null(c$error))
+    has_sim <- !is.null(sim_code_info())
+    tagList(
+      hr(),
+      tags$h4("R code for this analysis"),
+      helpText("The exact call the app made",
+               if (!c$exact) ", followed by the optimality check over the grid at the step(s) entered above",
+               if (has_sim) ", followed by the simulation study as run above (with the designs it compared)",
+               ". Copy it, or download it, to rerun and adapt the computation in R."),
+      verbatimTextOutput("code_txt"),
+      downloadButton("dl_code", "Download R code (.R)"))
+  })
+
   output$dl_png <- downloadHandler(
     filename = function() "owea_design.png",
     content  = function(file) {
@@ -1190,27 +1312,74 @@ server <- function(input, output, session) {
 
   output$verify_panel <- renderUI({
     c <- computed(); req(is.null(c$error)); if (isTRUE(c$exact)) return(NULL)
+    has_cont <- any(!owea:::.parse_design_box(c$sp$design_box)$is_factor)
     tagList(
       tags$h4("Verify optimality of a design"),
       helpText("Provide a design in the SAME format as the downloaded design CSV ",
                "(covariate columns + a 'weight' column). The box is prefilled with ",
                "the computed design — edit it, or upload a CSV, to verify a ",
                "different design. Optimality is checked under the ORIGINAL ",
-               "criterion and parameters of interest, over the design box at ",
-               "the finest grid step you specified."),
+               "criterion and parameters of interest (the general equivalence ",
+               "theorem) at every point of a grid over the design box",
+               if (has_cont) " at the step(s) below."
+               else " (all level combinations of the factors)."),
       fileInput("verify_file", "Upload design CSV (optional)", accept = ".csv"),
       textAreaInput("verify_manual", "… or paste / edit the design",
                     value = design_csv_text(design_df()), rows = 6),
+      # the grid of the check: a step of the user's choice over the design box
+      # (also the grid check of a design found by the continuous search)
+      if (has_cont) textInput(
+        "verify_step", "grid step(s) for the check",
+        value = isolate(input$verify_step) %||% owea:::.ui_verify_step_default(c$sp),
+        placeholder = "one number, or one per continuous covariate"),
+      if (has_cont) helpText(
+        "One number, or one per continuous covariate. A finer step is a stronger ",
+        "check but a larger grid; beyond 1,000,000 points you are asked before it ",
+        "is built. A design from the continuous search has support points off ",
+        "the grid: the sensitivity is evaluated at every grid point with the ",
+        "design taken exactly as given."),
       actionButton("verify_btn", "Verify optimality", class = "btn-info"),
       actionButton("reset_btn", "Reset"),
       uiOutput("verify_out"))
   })
 
+  # the grid step(s) of the check: what was typed, or the suggested default when
+  # the box is empty (NULL for an all-factor box, which is enumerated); ok is
+  # FALSE only when something unusable was typed
+  verify_step_eff <- function(c) {
+    if (!any(!owea:::.parse_design_box(c$sp$design_box)$is_factor))
+      return(list(step = NULL, ok = TRUE))
+    raw <- trimws(as.character(input$verify_step %||% ""))
+    if (!nzchar(raw)) raw <- owea:::.ui_verify_step_default(c$sp)
+    st <- owea:::.ui_parse_steps(raw)
+    list(step = st, ok = length(st) > 0 && all(st > 0))
+  }
+
+  # a one-line description of the grid a check runs over
+  verify_space_label <- function(st, N) {
+    npts <- if (is.finite(N)) format(round(N), big.mark = ",") else "?"
+    if (is.null(st))
+      sprintf("all level combinations of the factors (%s design points)", npts)
+    else
+      sprintf("a grid over the design box with step(s) %s (%s design points)",
+              paste(format(st), collapse = ", "), npts)
+  }
+
   # the verify itself: original criterion (c$p) and parameters of interest
-  # (c$subset), on the finest step of the original step sequence (via
-  # .ui_solver_args' "verify" target)
+  # (c$subset), over the grid at the entered step (via .ui_solver_args' "verify"
+  # target with verify_step)
   run_verify <- function(criterion_only = FALSE) {
     c <- computed(); if (is.null(c) || !is.null(c$error)) return()
+    se <- verify_step_eff(c)
+    if (!se$ok) {
+      rv$verify <- list(v = structure(list(
+        msg = "enter positive grid step(s) for the check: one number, or one per continuous covariate."),
+        class = "owea_bad"), warns = character(0), opt_crit = c$res$criterion)
+      return()
+    }
+    st <- se$step
+    N <- tryCatch(owea:::.ui_verify_points(c$sp, step = if (is.null(st)) 1 else st),
+                  error = function(e) NA_real_)
     warns <- character(0)
     v <- withCallingHandlers(
       tryCatch({
@@ -1226,24 +1395,28 @@ server <- function(input, output, session) {
                 c(list(support = dz$support, weights = w / sw,
                        criterion_only = criterion_only),
                   owea:::.ui_solver_args(c$sp, "verify", c$theta, c$p, c$subset,
-                                         c$existing)))
+                                         c$existing, verify_step = st)))
       },
       error = function(e) structure(list(msg = conditionMessage(e)), class = "owea_bad")),
       warning = function(w) { warns <<- c(warns, conditionMessage(w))
                               invokeRestart("muffleWarning") })
-    rv$verify <- list(v = v, warns = warns, opt_crit = c$res$criterion)
+    rv$verify <- list(v = v, warns = warns, opt_crit = c$res$criterion,
+                      space = verify_space_label(st, N))
   }
 
-  # gate on the size of the finest-step grid: checking optimality scans the
-  # WHOLE design space at the finest step, so past 1e6 points offer the same
-  # three choices as verify_optimality() itself
+  # gate on the size of the grid to scan: past 1e6 points offer the same three
+  # choices as verify_optimality() itself
   observeEvent(input$verify_btn, {
     c <- computed(); if (is.null(c) || !is.null(c$error)) return()
-    N <- tryCatch(owea:::.ui_verify_points(c$sp), error = function(e) 0)
+    se <- verify_step_eff(c)
+    N <- if (se$ok)
+      tryCatch(owea:::.ui_verify_points(c$sp, step = if (is.null(se$step)) 1 else se$step),
+               error = function(e) 0)
+    else 0
     if (is.finite(N) && N > 1e6)
       showModal(modalDialog(title = "Large design space",
         sprintf(paste0("Checking optimality evaluates the sensitivity at all ",
-          "%s design points of the finest-step grid; building it may be slow."),
+          "%s design points of this grid; building it may be slow."),
           format(round(N), big.mark = ",")),
         footer = tagList(
           modalButton("Cancel"),
@@ -1262,9 +1435,12 @@ server <- function(input, output, session) {
       return(div(class = "alert alert-danger", tags$b("Verify failed: "), vr$v$msg))
     v <- vr$v
     warn_ui <- if (length(vr$warns))
-      div(class = "alert alert-warning", tags$b("Warning: "),
-          paste(unique(vr$warns), collapse = "  "))
+      div(class = "alert alert-warning", tags$b("Note: "),
+          paste(unique(.friendly_warn(vr$warns)), collapse = "  "))
+    space_ui <- if (!is.null(vr$space))
+      tags$p(tags$b("Checked over: "), vr$space)
     crit_ui <- tagList(
+      space_ui,
       tags$p(tags$b("Criterion (this design): "), sprintf("%.6f", v$criterion)),
       tags$p(tags$small(sprintf("Optimal design criterion (for reference): %.6f",
                                 vr$opt_crit))),
@@ -1376,21 +1552,19 @@ server <- function(input, output, session) {
                         error = function(e) e)
     rv$sim <- s
   })
+  # the simple random sample: n runs from the finest-step grid after a grid
+  # computation, or uniformly from the continuous region after a continuous
+  # search (which has no grid) -- see .ui_srs_design()
   observeEvent(input$run_srs, {
     c <- computed(); req(is.null(c$error))
     s <- rv$sim; s$pool_warn <- NULL
     r <- tryCatch({
-      pool <- candidate_grid(c$sp$design_box, c$sp$finest)
-      if (nrow(pool) > 1e6)
+      d <- owea:::.ui_srs_design(c$sp, c$n)
+      if (is.finite(d$pool_size) && d$pool_size > 1e6)
         s$pool_warn <- sprintf(paste0("The SRS candidate pool has %d points; ",
-          "consider coarsening the step."), nrow(pool))
-      idx  <- sample(nrow(pool), c$n, replace = TRUE)
-      pts  <- pool[idx, , drop = FALSE]
-      keys <- do.call(paste, c(as.data.frame(pts), sep = "\r"))
-      uk   <- unique(keys)
-      sup  <- pts[match(uk, keys), , drop = FALSE]
-      cnt  <- as.integer(table(factor(keys, levels = uk)))
-      sim_run(sup, cnt)
+          "consider coarsening the step."), d$pool_size)
+      s$srs_design <- list(support = d$support, counts = d$counts)
+      sim_run(d$support, d$counts)
     }, error = function(e) e)
     s$srs <- r; rv$sim <- s
   })
@@ -1405,6 +1579,7 @@ server <- function(input, output, session) {
       if (sum(cnt) != c$n)
         stop(sprintf("counts sum to %d but must sum to n = %d.", sum(cnt), c$n),
              call. = FALSE)
+      s$custom_design <- list(support = dz$support, counts = cnt)
       sim_run(dz$support, cnt)
     }, error = function(e) e)
     s$custom <- r; rv$sim <- s
@@ -2464,6 +2639,10 @@ read_design <- function(file, text, cov_names, valcol = NULL) {
       "Optimality was certified only near the current support; enable a finer grid for a whole-region guarantee."
     else if (grepl("drawn from", m) || grepl("N\\(0", m))
       "No parameter values were given, so random ones were used — set theta for a meaningful local design."
+    else if (grepl("not among the design points", m, fixed = TRUE))
+      "The design's support points are not grid points (for example, a design from the continuous search). The sensitivity was evaluated at every grid point with the design taken exactly as given, so the check is valid."
+    else if (grepl("continuous search did NOT converge", m, fixed = TRUE))
+      "The continuous search stopped before certifying optimality; the design is close to optimal but not certified. In the R package, raise n_starts or max_iter, or supply init_points."
     else if (grepl("did NOT converge", m, fixed = TRUE))
       "The solver did not fully converge; try a finer grid step or fewer parameters of interest."
     else m

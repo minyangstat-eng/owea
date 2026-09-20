@@ -46,6 +46,11 @@ exact_design(
   merge = FALSE,
   merge_factor = 1.5,
   merge_atol = NULL,
+  continuous = FALSE,
+  info_jacobian = NULL,
+  init_levels = 3L,
+  n_starts = 30L,
+  n_audit = 20000L,
   verbose = FALSE
 )
 }
@@ -127,6 +132,14 @@ report its global optimality. See \code{\link{optimal_design}}.}
 
 \item{merge, merge_factor, merge_atol}{passed through to the internal
 \code{\link{optimal_design}} call (merging of the approximate design).}
+
+\item{continuous, info_jacobian, init_levels, n_starts, n_audit}{passed through
+to \code{\link{optimal_design}}: with \code{continuous = TRUE} the
+approximate reference design is found by the grid-free search over the
+continuous covariates (no \code{step_sequence} needed), and the candidate
+set of the rounding / exchange steps is that design's support (represented
+exactly; \code{snap_support} is then ignored) together with the small
+coarse grid the search started from.}
 
 \item{verbose}{print progress.}
 }

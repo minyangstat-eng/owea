@@ -22,7 +22,9 @@ simulate_design(
   sigma = 1,
   nsim = 1L,
   seed = NULL,
-  fit = TRUE
+  fit = TRUE,
+  existing = NULL,
+  obs = NULL
 )
 }
 \arguments{
@@ -55,6 +57,20 @@ link (default 1; ignored otherwise).}
 
 \item{fit}{if \code{TRUE} (default) also fit the model; if \code{FALSE} (only
 valid for \code{nsim = 1}) just return the simulated data.}
+
+\item{existing}{optional first stage to POOL with the design (as the app's
+simulation study does for a multistage design): \code{list(points,
+counts)} -- or \code{list(points, weights, n0)} -- an existing design
+whose responses are simulated from \code{theta} along with the new runs,
+so every replicate estimates \eqn{\theta} from both stages together.
+Needs \code{nsim >= 2}; the Monte Carlo summary is returned (with
+\code{n_existing} and \code{n_new}), without \code{cov_design}.}
+
+\item{obs}{optional OBSERVED first stage, \code{list(data, response)}: a
+data set of covariates plus a response column (named by \code{response},
+or the last column) whose real responses are kept fixed while only the
+new runs are simulated. Takes precedence over \code{existing}; needs
+\code{nsim >= 2}.}
 }
 \value{
 For \code{nsim = 1}: a list with \code{data} (the simulated runs and

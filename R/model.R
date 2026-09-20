@@ -250,27 +250,106 @@
   q
 }
 
+# Jacobian of the base model row f(x) with respect to the CONTINUOUS covariates:
+# a base_k x n_continuous matrix, column j = d q(x) / d x_(j-th continuous).
+# Intercept, factor main effects and factor:factor terms do not depend on the
+# continuous covariates; the other terms are linear or bilinear in them.
+.model_row_jacobian <- function(x, plan) {
+  x     <- as.numeric(x)
+  ncont <- length(plan$cont_pos)
+  J     <- matrix(0, plan$base_k, ncont)
+  pos   <- 0L
+  if (plan$intercept) pos <- pos + 1L
+  for (j in plan$f) pos <- pos + max(plan$nlev_fac[j] - 1L, 0L)
+  for (j in plan$x) { pos <- pos + 1L; J[pos, j] <- 1 }
+  for (p in plan$fx) {
+    cc <- .contrast_code(x[plan$fac_pos[p[1]]], plan$nlev_fac[p[1]], plan$coding)
+    if (length(cc)) { J[(pos + 1L):(pos + length(cc)), p[2]] <- cc; pos <- pos + length(cc) }
+  }
+  for (p in plan$xx) {
+    pos <- pos + 1L
+    xa <- x[plan$cont_pos[p[1]]]; xb <- x[plan$cont_pos[p[2]]]
+    if (p[1] == p[2]) J[pos, p[1]] <- 2 * xa
+    else { J[pos, p[1]] <- xb; J[pos, p[2]] <- xa }
+  }
+  J                                        # ff terms: zero rows, nothing to add
+}
+
+# Vectorised .model_row(): the N x base_k matrix of base model rows for the N
+# covariate points in the rows of X (same term order as .model_row()).
+.model_rows <- function(X, plan) {
+  X <- as.matrix(X); N <- nrow(X)
+  code_mat <- function(j) {                # N x (L-1) contrast codes of factor j
+    L <- plan$nlev_fac[j]
+    codes <- vapply(seq_len(L), function(l) .contrast_code(l, L, plan$coding),
+                    numeric(max(L - 1L, 0L)))
+    Cm  <- if (is.matrix(codes)) t(codes) else matrix(codes, ncol = 1L)
+    lev <- pmin(pmax(as.integer(round(X[, plan$fac_pos[j]])), 1L), L)
+    Cm[lev, , drop = FALSE]
+  }
+  blocks <- list()
+  if (plan$intercept) blocks[[length(blocks) + 1L]] <- matrix(1, N, 1L)
+  for (j in plan$f)  blocks[[length(blocks) + 1L]] <- code_mat(j)
+  for (j in plan$x)  blocks[[length(blocks) + 1L]] <- X[, plan$cont_pos[j], drop = FALSE]
+  for (p in plan$fx) blocks[[length(blocks) + 1L]] <- code_mat(p[1]) * X[, plan$cont_pos[p[2]]]
+  for (p in plan$xx)
+    blocks[[length(blocks) + 1L]] <- X[, plan$cont_pos[p[1]], drop = FALSE] * X[, plan$cont_pos[p[2]]]
+  for (p in plan$ff) {
+    A <- code_mat(p[1]); B <- code_mat(p[2])       # kronecker(ai, bj): first factor slow
+    blocks[[length(blocks) + 1L]] <- do.call(cbind, lapply(seq_len(ncol(A)), function(a) A[, a] * B))
+  }
+  Q <- if (length(blocks)) do.call(cbind, blocks) else matrix(0, N, 0L)
+  unname(Q)
+}
+
+# The GLM weight g(eta) with f = g(eta) q and its derivative g'(eta).
+.model_glm_weight <- function(eta, link) {
+  if (link == "logit") {
+    g <- exp(eta / 2) / (1 + exp(eta))
+    list(g = g, dg = g * (0.5 - stats::plogis(eta)))
+  } else {                                          # loglinear (Poisson log link)
+    g <- exp(eta / 2)
+    list(g = g, dg = g / 2)
+  }
+}
+
 # Build the per-point info_vector function for a plan.  identity -> function(x)
-# (theta unused); logit / loglinear -> function(x, theta).
+# (theta unused); logit / loglinear -> function(x, theta).  The function carries
+# two more attributes used by the continuous (grid-free) search: "jacobian",
+# function(x, theta) -> k x n_continuous derivative of f with respect to the
+# continuous covariates, and "vectorized", function(X, theta) -> k x N matrix
+# of f at the rows of X.
 .make_model_info_vector <- function(plan) {
-  f <- if (plan$link == "identity") {
-    function(x) .model_row(x, plan)
-  } else if (plan$link == "logit") {
-    function(x, theta) {
+  if (plan$link == "identity") {
+    f   <- function(x) .model_row(x, plan)
+    jac <- function(x, theta) .model_row_jacobian(x, plan)
+    vec <- function(X, theta) t(.model_rows(X, plan))
+  } else {
+    link <- plan$link
+    f <- function(x, theta) {
       q   <- .model_row(x, plan)
       eta <- min(max(sum(q * theta), -500), 500)   # guard exp() overflow
-      (exp(eta / 2) / (1 + exp(eta))) * q
+      .model_glm_weight(eta, link)$g * q
     }
-  } else {                                          # loglinear (Poisson log link)
-    function(x, theta) {
-      q   <- .model_row(x, plan)
-      eta <- min(max(sum(q * theta), -500), 500)
-      exp(eta / 2) * q
+    jac <- function(x, theta) {
+      q    <- .model_row(x, plan)
+      Jq   <- .model_row_jacobian(x, plan)
+      eta  <- min(max(sum(q * theta), -500), 500)
+      gw   <- .model_glm_weight(eta, link)
+      deta <- as.numeric(crossprod(Jq, as.numeric(theta)))   # d eta / d x_cont
+      gw$g * Jq + gw$dg * outer(q, deta)
+    }
+    vec <- function(X, theta) {
+      Q   <- .model_rows(X, plan)
+      eta <- pmin(pmax(drop(Q %*% as.numeric(theta)), -500), 500)
+      t(Q * .model_glm_weight(eta, link)$g)
     }
   }
   attr(f, "coef_names") <- plan$coef_names
   attr(f, "link")       <- plan$link
   attr(f, "coding")     <- plan$coding
+  attr(f, "jacobian")   <- jac
+  attr(f, "vectorized") <- vec
   f
 }
 

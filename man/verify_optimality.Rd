@@ -33,7 +33,11 @@ verify_optimality(
   factor_levels = NULL,
   tol = 1e-06,
   max_points = 1e+06,
-  criterion_only = FALSE
+  criterion_only = FALSE,
+  continuous = FALSE,
+  n_starts = 30L,
+  n_audit = 20000L,
+  info_jacobian = NULL
 )
 }
 \arguments{
@@ -83,6 +87,19 @@ and information matrix are returned, but the \code{design_box} +
 \code{step} grid is never built, so this works for any grid size.
 \code{max_sensitivity} is \code{NA}, \code{is_optimal$value} is \code{NA}
 (optimality is NOT assessed) and \code{maximiser} is \code{NULL}.}
+
+\item{continuous}{if \code{TRUE} (with \code{design_box}, no \code{step}
+needed), the design space is the continuous region itself: the maximum
+sensitivity is found by multi-start L-BFGS-B over the region (started from
+the support points, the box vertices and \code{n_starts} random points,
+for every level combination of the factors) plus a random audit of
+\code{n_audit} points whose best points are polished locally -- the
+grid-free counterpart of \code{optimal_design(continuous = TRUE)}. The
+reported maximum is over the points examined, not an exhaustive scan.
+Support points outside the box are flagged with a warning.}
+
+\item{n_starts, n_audit, info_jacobian}{as in \code{\link{optimal_design}}
+(used only when \code{continuous = TRUE}).}
 }
 \value{
 a list with \code{is_optimal} -- itself a list with \code{value}
@@ -99,7 +116,9 @@ a list with \code{is_optimal} -- itself a list with \code{value}
   \code{information} (the resulting \eqn{k \times k} information matrix;
   combined with any existing design), \code{maximiser} (the design-space point
   attaining the maximum sensitivity), and echoes of \code{support},
-  \code{weights}, \code{p}, \code{tol}. Under \code{criterion_only} the
+  \code{weights}, \code{p}, \code{tol}, plus \code{method} (\code{"grid"},
+  \code{"candidate_set"} or \code{"continuous"}) and, for the continuous
+  mode, \code{n_audit} and \code{audit_max_d}. Under \code{criterion_only} the
   sensitivity fields are placeholders: \code{is_optimal$value} and
   \code{max_sensitivity} are \code{NA} and \code{maximiser} is \code{NULL}.
 }
@@ -123,6 +142,7 @@ The design space is the finite set \code{candidate_grid(design_box,
   step)} (or the \code{candidate_set}). Support points that are not among those
   design points are allowed but flagged with a warning; choose \code{step} so
   the design's support fall on the grid, or pass a \code{candidate_set}.
+  With \code{continuous = TRUE} the design space is the continuous region.
 }
 \seealso{
 \code{\link{optimal_design}}, \code{\link{candidate_grid}},

@@ -179,6 +179,18 @@
 #' @param seed optional integer seed for reproducibility.
 #' @param fit if \code{TRUE} (default) also fit the model; if \code{FALSE} (only
 #'   valid for \code{nsim = 1}) just return the simulated data.
+#' @param existing optional first stage to POOL with the design (as the app's
+#'   simulation study does for a multistage design): \code{list(points,
+#'   counts)} -- or \code{list(points, weights, n0)} -- an existing design
+#'   whose responses are simulated from \code{theta} along with the new runs,
+#'   so every replicate estimates \eqn{\theta} from both stages together.
+#'   Needs \code{nsim >= 2}; the Monte Carlo summary is returned (with
+#'   \code{n_existing} and \code{n_new}), without \code{cov_design}.
+#' @param obs optional OBSERVED first stage, \code{list(data, response)}: a
+#'   data set of covariates plus a response column (named by \code{response},
+#'   or the last column) whose real responses are kept fixed while only the
+#'   new runs are simulated. Takes precedence over \code{existing}; needs
+#'   \code{nsim >= 2}.
 #' @return For \code{nsim = 1}: a list with \code{data} (the simulated runs and
 #'   response), and -- when \code{fit = TRUE} -- \code{theta_hat}, \code{se},
 #'   \code{vcov}, \code{loglik}, \code{converged}. For \code{nsim > 1}: a list
@@ -207,7 +219,8 @@ simulate_design <- function(support, counts = NULL, link = NULL,
                             f = NULL, x = NULL, fx = NULL, xx = NULL, ff = NULL,
                             intercept = TRUE, coding = "zero-sum", ncat = NULL,
                             theta = NULL, design_box = NULL, factor_levels = NULL,
-                            sigma = 1, nsim = 1L, seed = NULL, fit = TRUE) {
+                            sigma = 1, nsim = 1L, seed = NULL, fit = TRUE,
+                            existing = NULL, obs = NULL) {
   if (inherits(support, "exact_design")) {
     if (is.null(counts)) counts <- support$counts
     support <- support$support
@@ -243,6 +256,17 @@ simulate_design <- function(support, counts = NULL, link = NULL,
     if (length(a) > 1L && any(diff(a) <= 0))
       stop("cumulative model: the first ncat-1 elements of 'theta' are the ",
            "thresholds and must be strictly increasing.", call. = FALSE)
+  }
+
+  # ---- pooled with a first stage (an existing design whose responses are
+  # simulated, or an observed data set whose responses are kept): the analysis
+  # the app's simulation study performs for a multistage design
+  if (!is.null(existing) || !is.null(obs)) {
+    if (nsim < 2L)
+      stop("'existing' / 'obs' (a pooled first stage) need nsim >= 2: the pooled ",
+           "simulation returns Monte Carlo summaries only.", call. = FALSE)
+    return(.simulate_pooled(plan, theta, sigma, support, counts,
+                            existing = existing, obs = obs, nsim = nsim, seed = seed))
   }
 
   if (!is.null(seed)) set.seed(as.integer(seed))

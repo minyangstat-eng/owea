@@ -44,6 +44,13 @@ optimal_design(
   engine = c("classic", "active-set"),
   add_per_iter = 1L,
   accept_tol = 1e-09,
+  continuous = FALSE,
+  info_jacobian = NULL,
+  init_levels = 3L,
+  init_points = NULL,
+  n_starts = 30L,
+  n_audit = 20000L,
+  merge_tol = 0.001,
   verbose = FALSE
 )
 }
@@ -211,6 +218,64 @@ support per iteration); ignored by the classic engine, which adds one.}
 \item{accept_tol}{a refinement stage is kept only if it converges and the
 criterion does not worsen by more than this.}
 
+\item{continuous}{if \code{TRUE} (\code{design_box} path only), search the
+continuous covariates in the CONTINUOUS design region instead of on a grid;
+no \code{step_sequence} is needed. The solver starts from the OWEA solution
+on a small coarse grid (\code{init_levels} levels per continuous covariate
+times all levels of every factor), then alternates (i) polishing -- with
+the weights fixed, the criterion is minimised over the continuous
+coordinates of all support points by L-BFGS-B, using the closed-form
+gradient \eqn{-(w_i/v)\,\partial\,\mathrm{tr}(P\,I(x))/\partial x} at
+\eqn{x_i}, where \eqn{P} is the matrix behind the directional derivative
+and \eqn{v} the number of parameters of interest -- (ii) the package's
+Newton weight step on the current support, (iii) merging of support points
+closer than \code{merge_tol}, and (iv) adding the maximiser of the
+directional derivative over the region, found by multi-start L-BFGS-B
+(started from the support points, the box vertices and \code{n_starts}
+random points, for every level combination of the factors). It stops when
+that maximum is \eqn{\le} \code{eps0} and a random audit of \code{n_audit}
+points (its best points polished locally) finds no violation. The
+certificate (\code{max_d}, \code{efficiency_lower_bound}) is the largest
+directional derivative over the points examined, not an exhaustive scan.
+Factor covariates keep their levels. On this path \code{step_sequence} and
+\code{merge} are ignored and \code{check_global} needs \code{global_step}.
+Default \code{FALSE}: the grid path is unchanged.}
+
+\item{info_jacobian}{optional derivative of the per-point information with
+respect to the continuous covariates, used by \code{continuous = TRUE}:
+\code{function(x, theta)} (or \code{function(x)}) returning a
+\eqn{k \times n_c} matrix for \code{info_vector} (\eqn{\partial f/\partial
+x}) or a \eqn{k^2 \times n_c} matrix for \code{info_matrix} (the
+column-major \eqn{\partial\,\mathrm{vec}\,I(x)/\partial x}), with
+\eqn{n_c} the number of continuous covariates in \code{design_box} order.
+Default \code{NULL}: a formula-style model uses its analytic derivative
+and a user-supplied model function is differentiated by finite differences
+(central inside the box, one-sided at its boundary).}
+
+\item{init_levels}{number of equally spaced levels per continuous covariate
+of the coarse grid the continuous search starts from (default 3: the two
+ends and the midpoint; raised automatically if the grid would have fewer
+than \eqn{k + 1} points).}
+
+\item{init_points}{optional matrix of starting support points for the
+continuous search (one row per point, one column per covariate, factor
+columns holding levels), replacing the coarse grid.}
+
+\item{n_starts}{number of random starts of the multi-start maximisation of
+the directional derivative (default 30, shared across the level
+combinations of the factors), on top of the support points and the box
+vertices.}
+
+\item{n_audit}{number of random points of the final audit (default 20000;
+0 skips it). It costs one model evaluation per point: about a second per
+million points for a formula-style model, one to two seconds per 100,000
+points for a user-supplied model function.}
+
+\item{merge_tol}{continuous search only: two support points with identical
+factor levels whose continuous coordinates, each scaled by the range of
+its covariate, lie within this Euclidean distance are merged (default
+\code{1e-3}).}
+
 \item{verbose}{print stage-by-stage progress.}
 }
 \value{
@@ -242,12 +307,24 @@ list with \code{support}, \code{weights}, \code{criterion},
   For the multistage (\code{design_box}) path a \code{converged} design is
   optimal only over the refined neighbourhood grids unless
   \code{check_global = TRUE} certifies it over the whole box.
+  With \code{continuous = TRUE} the result also carries
+  \code{method = "continuous"}, \code{iterations}, \code{history} (one row
+  per iteration: time, support size, criterion, max sensitivity),
+  \code{maximiser} (the point attaining \code{max_d}), \code{n_audit},
+  \code{audit_max_d} and \code{jacobian} (\code{"analytic"},
+  \code{"finite differences"} or \code{"user"}); \code{global_max_d} /
+  \code{global_check} then repeat \code{max_d} / \code{converged}, since the
+  region-wide search is the check, \code{grid_sizes} is the size of the
+  coarse starting grid and \code{times} holds its solve time and the time of
+  the continuous search.
 }
 \description{
 The recommended high-level entry point. Supply the model as EITHER
 \code{info_vector(x, theta)} (fast path) OR \code{info_matrix(x)} (general
 path). Candidate points come EITHER from a continuous \code{design_box} +
-\code{step_sequence} (multistage grid refinement) OR from a fixed
-\code{candidate_set} you provide. Supports existing designs (\code{xi0_*},
-\code{n0}, \code{n1}) and optional neighbourhood merging.
+\code{step_sequence} (multistage grid refinement), OR from the continuous
+\code{design_box} itself with \code{continuous = TRUE} (a grid-free search
+that needs no steps), OR from a fixed \code{candidate_set} you provide.
+Supports existing designs (\code{xi0_*}, \code{n0}, \code{n1}) and optional
+neighbourhood merging.
 }
