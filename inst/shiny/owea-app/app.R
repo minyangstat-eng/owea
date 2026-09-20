@@ -510,16 +510,11 @@ server <- function(input, output, session) {
         helpText("The continuous search starts from a coarse grid with three ",
                  "levels per continuous covariate, moves the support points to ",
                  "their best locations, and adds points where the sensitivity is ",
-                 "largest. Optimality is certified by a multi-start search of the ",
-                 "region plus a random audit of the points below rather than by a ",
-                 "grid scan. Recommended when several covariates are continuous, ",
-                 "where a fine grid grows too large."),
-        numericInput("n_audit", "Random audit points (0 = no audit)",
-                     value = isolate(input$n_audit) %||% 20000, min = 0, step = 1000),
-        helpText("The audit evaluates the sensitivity at this many random points of ",
-                 "the region after the search converges, as a safeguard against a ",
-                 "missed maximum; each point costs one model evaluation (about a ",
-                 "second per million points for the built-in models).")))
+                 "largest, until a multi-start search of the region finds no ",
+                 "violation of the equivalence theorem. Recommended when several ",
+                 "covariates are continuous, where a fine grid grows too large. ",
+                 "Once the design is computed, the results page lets you verify it ",
+                 "on a grid or by a random audit of the region.")))
   })
 
   # the factor coding only exists when there IS a factor (item 2)
@@ -564,7 +559,9 @@ server <- function(input, output, session) {
                           coding = if (has_factor()) input$coding %||% "zero-sum"
                                    else "zero-sum",
                           continuous = is_continuous(),
-                          n_audit = input$n_audit %||% 20000)
+                          # the search itself runs without a random audit; the
+                          # audit is offered afterwards in the verify panel
+                          n_audit = 0)
   })
   spec_ok    <- reactive(tryCatch({ spec(); NULL }, error = conditionMessage))
   coef_names <- reactive(tryCatch(owea:::.ui_coef_names(spec()),
@@ -965,10 +962,8 @@ server <- function(input, output, session) {
       sprintf("Covariates: %s", paste(names(sp$design_box), collapse = ", ")),
       if (isTRUE(sp$continuous))
         sprintf(paste0("Design space: the continuous region is searched directly ",
-                       "(no grid; the search starts from a coarse %s-point grid; ",
-                       "random audit of %s points)"),
-                format(round(gs[1]), big.mark = ","),
-                format(sp$n_audit, big.mark = ","))
+                       "(no grid; the search starts from a coarse %s-point grid)"),
+                format(round(gs[1]), big.mark = ","))
       else if (length(gs) && is.finite(gs[1]))
         sprintf("Candidate set: %s design points%s",
                 format(round(gs[1]), big.mark = ","),
@@ -1053,13 +1048,14 @@ server <- function(input, output, session) {
     # the continuous search certifies over the points it examined (multi-start
     # search + random audit), the grid path over the searched grid
     cont <- isTRUE(c$sp$continuous)
-    n_au <- if (cont && !is.null(c$res$n_audit)) c$res$n_audit else 20000L
+    n_au <- if (cont && !is.null(c$res$n_audit)) c$res$n_audit else 0L
     msg <- if (conv && cont)
-      sprintf(paste0("Design computed by the continuous search and verified optimal over ",
-                     "the points examined (a multi-start search of the region%s)."),
+      sprintf(paste0("Design computed by the continuous search: a multi-start search of ",
+                     "the region%s found no violation of the equivalence theorem. ",
+                     "Verify it below on a grid or by a random audit."),
               if (n_au > 0) sprintf(" plus a random audit of %s points",
                                     format(n_au, big.mark = ","))
-              else "; no random audit was requested")
+              else "")
     else if (conv) "Design computed and verified optimal on the searched grid."
     else if (cont)
       paste0("Computed, but optimality was not fully certified — the continuous ",
@@ -1198,11 +1194,20 @@ server <- function(input, output, session) {
   r_code <- reactive({
     c <- computed(); req(is.null(c$error))
     vargs <- if (c$exact) NULL else {
-      se <- verify_step_eff(c)
-      tryCatch(owea:::.ui_solver_args(c$sp, "verify", c$theta, c$p, c$subset,
-                                      c$existing,
-                                      verify_step = if (se$ok) se$step else NULL),
-               error = function(e) NULL)
+      has_cont <- any(!owea:::.parse_design_box(c$sp$design_box)$is_factor)
+      if (has_cont && verify_audit_mode()) {
+        na <- verify_audit_eff()
+        tryCatch(owea:::.ui_solver_args(c$sp, "verify", c$theta, c$p, c$subset,
+                                        c$existing,
+                                        verify_audit = if (is.na(na)) 20000L else na),
+                 error = function(e) NULL)
+      } else {
+        se <- verify_step_eff(c)
+        tryCatch(owea:::.ui_solver_args(c$sp, "verify", c$theta, c$p, c$subset,
+                                        c$existing,
+                                        verify_step = if (se$ok) se$step else NULL),
+                 error = function(e) NULL)
+      }
     }
     owea:::.ui_r_code(c$args, if (c$exact) "exact" else "optimal", verify_args = vargs,
                       sim = sim_code_info())
@@ -1218,7 +1223,7 @@ server <- function(input, output, session) {
       hr(),
       tags$h4("R code for this analysis"),
       helpText("The exact call the app made",
-               if (!c$exact) ", followed by the optimality check over the grid at the step(s) entered above",
+               if (!c$exact) ", followed by the optimality check as set up in the verify section above (grid or random audit)",
                if (has_sim) ", followed by the simulation study as run above (with the designs it compared)",
                ". Copy it, or download it, to rerun and adapt the computation in R."),
       verbatimTextOutput("code_txt"),
@@ -1313,6 +1318,7 @@ server <- function(input, output, session) {
   output$verify_panel <- renderUI({
     c <- computed(); req(is.null(c$error)); if (isTRUE(c$exact)) return(NULL)
     has_cont <- any(!owea:::.parse_design_box(c$sp$design_box)$is_factor)
+    cont <- isTRUE(c$sp$continuous)
     tagList(
       tags$h4("Verify optimality of a design"),
       helpText("Provide a design in the SAME format as the downloaded design CSV ",
@@ -1320,28 +1326,58 @@ server <- function(input, output, session) {
                "the computed design — edit it, or upload a CSV, to verify a ",
                "different design. Optimality is checked under the ORIGINAL ",
                "criterion and parameters of interest (the general equivalence ",
-               "theorem) at every point of a grid over the design box",
-               if (has_cont) " at the step(s) below."
-               else " (all level combinations of the factors)."),
+               "theorem)",
+               if (has_cont) ", over a grid or by a random audit of the region."
+               else " at every level combination of the factors."),
       fileInput("verify_file", "Upload design CSV (optional)", accept = ".csv"),
       textAreaInput("verify_manual", "… or paste / edit the design",
                     value = design_csv_text(design_df()), rows = 6),
-      # the grid of the check: a step of the user's choice over the design box
-      # (also the grid check of a design found by the continuous search)
-      if (has_cont) textInput(
-        "verify_step", "grid step(s) for the check",
-        value = isolate(input$verify_step) %||% owea:::.ui_verify_step_default(c$sp),
-        placeholder = "one number, or one per continuous covariate"),
-      if (has_cont) helpText(
-        "One number, or one per continuous covariate. A finer step is a stronger ",
-        "check but a larger grid; beyond 1,000,000 points you are asked before it ",
-        "is built. A design from the continuous search has support points off ",
-        "the grid: the sensitivity is evaluated at every grid point with the ",
-        "design taken exactly as given."),
+      # how to check: a grid at a step of the user's choice, or a random audit
+      # of the continuous region with a chosen number of points
+      if (has_cont) radioButtons(
+        "verify_mode", "Check the equivalence theorem",
+        choices = c("On a grid over the design box (step(s) below)" = "grid",
+                    "By a random audit of the design region (number of points below)" = "audit"),
+        selected = isolate(input$verify_mode) %||% "grid"),
+      if (has_cont) conditionalPanel(
+        "input.verify_mode != 'audit'",
+        textInput("verify_step", "grid step(s) for the check",
+                  value = isolate(input$verify_step) %||% owea:::.ui_verify_step_default(c$sp),
+                  placeholder = "one number, or one per continuous covariate"),
+        if (!cont)
+          div(class = "alert alert-info",
+              sprintf(paste0("Optimality has already been verified on the grid of the ",
+                             "computation (finest step %s). Choose a different step ",
+                             "here to avoid repeating that computation."),
+                      owea:::.ui_verify_step_default(c$sp)))
+        else
+          helpText("The design was found by a continuous search, so its support ",
+                   "points are off the grid: the sensitivity is evaluated at every ",
+                   "grid point with the design taken exactly as given."),
+        helpText("One number, or one per continuous covariate. A finer step is a ",
+                 "stronger check but a larger grid; beyond 1,000,000 points you ",
+                 "are asked before it is built.")),
+      if (has_cont) conditionalPanel(
+        "input.verify_mode == 'audit'",
+        numericInput("verify_audit", "Random audit points",
+                     value = isolate(input$verify_audit) %||% 20000, min = 1, step = 1000),
+        helpText("The sensitivity is evaluated at this many random points of the ",
+                 "region, the best few are polished locally, and a multi-start ",
+                 "search from the support points and the box corners is added. Each ",
+                 "point costs one model evaluation (about a second per million ",
+                 "points for the built-in models).")),
       actionButton("verify_btn", "Verify optimality", class = "btn-info"),
       actionButton("reset_btn", "Reset"),
       uiOutput("verify_out"))
   })
+
+  # the audit mode of the verify panel, and its number of points (NA when
+  # something unusable was typed)
+  verify_audit_mode <- reactive(identical(input$verify_mode %||% "grid", "audit"))
+  verify_audit_eff  <- function() {
+    n <- suppressWarnings(as.integer(round(as.numeric(input$verify_audit %||% 20000))))
+    if (length(n) != 1L || is.na(n) || n < 1L) NA_integer_ else n
+  }
 
   # the grid step(s) of the check: what was typed, or the suggested default when
   # the box is empty (NULL for an all-factor box, which is enumerated); ok is
@@ -1355,8 +1391,12 @@ server <- function(input, output, session) {
     list(step = st, ok = length(st) > 0 && all(st > 0))
   }
 
-  # a one-line description of the grid a check runs over
-  verify_space_label <- function(st, N) {
+  # a one-line description of the design space a check runs over
+  verify_space_label <- function(st, N, audit = NA) {
+    if (!is.na(audit))
+      return(sprintf(paste0("a random audit of the design region with %s points (plus ",
+                            "a multi-start search from the support points and the box ",
+                            "corners)"), format(audit, big.mark = ",")))
     npts <- if (is.finite(N)) format(round(N), big.mark = ",") else "?"
     if (is.null(st))
       sprintf("all level combinations of the factors (%s design points)", npts)
@@ -1366,20 +1406,27 @@ server <- function(input, output, session) {
   }
 
   # the verify itself: original criterion (c$p) and parameters of interest
-  # (c$subset), over the grid at the entered step (via .ui_solver_args' "verify"
-  # target with verify_step)
+  # (c$subset), over the grid at the entered step or by the random audit (via
+  # .ui_solver_args' "verify" target with verify_step / verify_audit)
   run_verify <- function(criterion_only = FALSE) {
     c <- computed(); if (is.null(c) || !is.null(c$error)) return()
-    se <- verify_step_eff(c)
-    if (!se$ok) {
-      rv$verify <- list(v = structure(list(
-        msg = "enter positive grid step(s) for the check: one number, or one per continuous covariate."),
-        class = "owea_bad"), warns = character(0), opt_crit = c$res$criterion)
-      return()
+    has_cont <- any(!owea:::.parse_design_box(c$sp$design_box)$is_factor)
+    bad <- function(msg) {
+      rv$verify <- list(v = structure(list(msg = msg), class = "owea_bad"),
+                        warns = character(0), opt_crit = c$res$criterion)
     }
-    st <- se$step
-    N <- tryCatch(owea:::.ui_verify_points(c$sp, step = if (is.null(st)) 1 else st),
-                  error = function(e) NA_real_)
+    audit <- NA_integer_; st <- NULL; N <- NA_real_
+    if (has_cont && verify_audit_mode()) {
+      audit <- verify_audit_eff()
+      if (is.na(audit)) return(bad("enter a positive number of random audit points."))
+    } else {
+      se <- verify_step_eff(c)
+      if (!se$ok)
+        return(bad("enter positive grid step(s) for the check: one number, or one per continuous covariate."))
+      st <- se$step
+      N <- tryCatch(owea:::.ui_verify_points(c$sp, step = if (is.null(st)) 1 else st),
+                    error = function(e) NA_real_)
+    }
     warns <- character(0)
     v <- withCallingHandlers(
       tryCatch({
@@ -1395,19 +1442,22 @@ server <- function(input, output, session) {
                 c(list(support = dz$support, weights = w / sw,
                        criterion_only = criterion_only),
                   owea:::.ui_solver_args(c$sp, "verify", c$theta, c$p, c$subset,
-                                         c$existing, verify_step = st)))
+                                         c$existing, verify_step = st,
+                                         verify_audit = if (is.na(audit)) NULL else audit)))
       },
       error = function(e) structure(list(msg = conditionMessage(e)), class = "owea_bad")),
       warning = function(w) { warns <<- c(warns, conditionMessage(w))
                               invokeRestart("muffleWarning") })
     rv$verify <- list(v = v, warns = warns, opt_crit = c$res$criterion,
-                      space = verify_space_label(st, N))
+                      space = verify_space_label(st, N, audit))
   }
 
-  # gate on the size of the grid to scan: past 1e6 points offer the same three
-  # choices as verify_optimality() itself
+  # gate on the size of the grid to scan (grid checks only): past 1e6 points
+  # offer the same three choices as verify_optimality() itself
   observeEvent(input$verify_btn, {
     c <- computed(); if (is.null(c) || !is.null(c$error)) return()
+    has_cont <- any(!owea:::.parse_design_box(c$sp$design_box)$is_factor)
+    if (has_cont && verify_audit_mode()) { run_verify(); return() }
     se <- verify_step_eff(c)
     N <- if (se$ok)
       tryCatch(owea:::.ui_verify_points(c$sp, step = if (is.null(se$step)) 1 else se$step),

@@ -36,16 +36,19 @@
   `n_audit` and `audit_max_d`.
 * App: when a covariate is continuous, the model step offers "How to search
   the continuous covariates": on a grid (enter the grid steps, as before) or
-  directly in the continuous region (no steps), with the number of random
-  audit points as an input (default 20,000; 0 = no audit), used by both the
-  design search and the verify panel. The review, results and verify panels
-  describe the continuous certificate accordingly.
+  directly in the continuous region (no steps). The continuous search runs
+  without a random audit; its own check is the multi-start search of the
+  region, and the verify panel offers the audit afterwards.
 * App: the verify panel of a single-criterion approximate design checks the
-  equivalence theorem over a grid of the design box at step(s) you type
+  equivalence theorem either on a grid of the design box at step(s) you type
   (prefilled with the finest step of a grid computation, or one fortieth of
-  each range after a continuous search) -- so a design found by the continuous
-  search can be checked on a grid -- with the usual large-grid safeguard; the
-  result names the grid it was checked over.
+  each range after a continuous search; the usual large-grid safeguard) or by
+  a random audit of the design region with the number of points you choose
+  (default 20,000; the best points are polished and a multi-start search from
+  the support points and box corners is added). After a grid computation the
+  grid option notes that the computation's own grid was already verified, so a
+  different step avoids repeating it. The result names the space it was
+  checked over.
 * App: the results page ends with an "R code for this analysis" section and a
   download button: a runnable script with the exact `optimal_design()` /
   `exact_design()` call the app made and, for approximate designs, the

@@ -138,6 +138,18 @@ test_that("an explicit grid check overrides the spec's design space for 'verify'
   expect_equal(owea:::.ui_solver_args(spc, "verify", verify_step = c(0.1))$step, 0.1)
   expect_error(owea:::.ui_solver_args(spc, "verify", verify_step = -1), "positive")
   expect_error(owea:::.ui_solver_args(spc, "verify", verify_step = numeric(0)), "positive")
+  # an explicit random audit: the continuous check with the chosen size, for any spec
+  a <- owea:::.ui_solver_args(spc, "verify", verify_audit = 3000)
+  expect_true(a$continuous); expect_equal(a$n_audit, 3000L); expect_null(a$step)
+  spg0 <- owea:::.ui_model_spec(
+    list(list(name = "dose", type = "continuous", lo = -1, hi = 1, steps = 0.25)),
+    link = "identity")
+  ag <- owea:::.ui_solver_args(spg0, "verify", verify_audit = 500)
+  expect_true(ag$continuous); expect_equal(ag$n_audit, 500L); expect_null(ag$step)
+  expect_error(owea:::.ui_solver_args(spg0, "verify", verify_audit = 0), "positive")
+  # a step wins over an audit when both are given
+  both <- owea:::.ui_solver_args(spg0, "verify", verify_step = 0.1, verify_audit = 500)
+  expect_equal(both$step, 0.1); expect_null(both$continuous)
   # the grid count for the gate: 3 levels x (2 / 0.05 + 1)
   expect_equal(owea:::.ui_verify_points(spc, step = 0.05), 3 * 41)
   expect_true(is.na(owea:::.ui_verify_points(spc)))                 # continuous: no grid

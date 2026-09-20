@@ -256,8 +256,12 @@
 #   n        : exact designs only, the runs to allocate
 #   verify_step : "verify" target only -- when given, the check runs over a
 #              GRID of the design box at these step(s) (a scalar, or one value
-#              per continuous covariate) whatever the spec's own search mode;
-#              NULL (default) checks over the design space the computation used
+#              per continuous covariate) whatever the spec's own search mode
+#   verify_audit : "verify" target only -- when given, the check is the
+#              continuous one: a multi-start search of the region plus a
+#              RANDOM AUDIT of this many points (>= 1), whatever the spec's mode
+#              (verify_step wins if both are given).  With neither, the check
+#              runs over the design space the computation used.
 #
 # Returns a named list to do.call() into.  With no existing design the xi0_* /
 # n0 / n1 arguments are OMITTED entirely (passing xi0_points with n0 = 0 would
@@ -265,7 +269,8 @@
 .ui_solver_args <- function(spec, target = c("optimal", "exact", "verify",
                                              "fit", "simulate"),
                             theta = NULL, p = 0L, subset = NULL,
-                            existing = NULL, n = NULL, verify_step = NULL) {
+                            existing = NULL, n = NULL, verify_step = NULL,
+                            verify_audit = NULL) {
   target <- match.arg(target)
   cn <- .ui_coef_names(spec)
   k  <- length(cn)
@@ -318,6 +323,12 @@
         stop("the grid step(s) of the check must be positive numbers.", call. = FALSE)
       args$step       <- st
       args$max_points <- Inf
+    } else if (!is.null(verify_audit)) {      # an explicit random audit
+      na <- suppressWarnings(as.integer(round(as.numeric(verify_audit)[1])))
+      if (is.na(na) || na < 1L)
+        stop("the random audit needs a positive number of points.", call. = FALSE)
+      args$continuous <- TRUE
+      args$n_audit    <- na
     } else if (isTRUE(spec$continuous)) {
       args <- cont_args(args)
     } else {

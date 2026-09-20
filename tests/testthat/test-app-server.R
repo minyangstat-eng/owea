@@ -296,6 +296,29 @@ test_that("a comma step sequence flows through compute to the solver", {
   })
 })
 
+test_that("after a grid computation the verify panel notes the grid already checked", {
+  skip_if_not_installed("shiny"); skip_if_not_installed("DT")
+  e <- app_env()
+  shiny::testServer(e$server, {
+    set_model(session, link = "identity", start = "none", cov_step_1 = "0.5, 0.25")
+    session$setInputs(compute = 1)
+    expect_null(computed()$error)
+    html <- output$verify_panel$html
+    expect_match(html, "already been verified on the grid of the computation (finest step 0.25)",
+                 fixed = TRUE)
+    expect_match(html, "random audit", fixed = TRUE)         # both checks are offered
+    # the audit check works after a grid computation too
+    csv <- "dose,weight\n-1,0.5\n1,0.5"
+    session$setInputs(verify_manual = csv, verify_mode = "audit", verify_audit = 2000,
+                      verify_btn = 1)
+    v <- rv$verify$v
+    expect_false(inherits(v, "owea_bad"))
+    expect_identical(v$method, "continuous")
+    expect_equal(v$n_audit, 2000L)
+    expect_true(v$is_optimal$value)
+  })
+})
+
 test_that("verify panel checks the ORIGINAL criterion at the finest step", {
   skip_if_not_installed("shiny"); skip_if_not_installed("DT")
   e <- app_env()
@@ -332,41 +355,40 @@ test_that("the continuous search flows through the app to the solver", {
   skip_if_not_installed("shiny"); skip_if_not_installed("DT")
   e <- app_env()
   shiny::testServer(e$server, {
-    set_model(session, link = "identity", start = "none", search_mode = "continuous",
-              n_audit = 5000)
+    set_model(session, link = "identity", start = "none", search_mode = "continuous")
     expect_true(is_continuous())
     expect_true(spec()$continuous)
     expect_null(spec()$step_sequence)
-    expect_equal(spec()$n_audit, 5000L)
+    expect_equal(spec()$n_audit, 0L)                 # the search runs without an audit
     expect_match(output$review_out$html, "continuous region", fixed = TRUE)
-    expect_match(output$review_out$html, "5,000 points", fixed = TRUE)
     set.seed(1)
     session$setInputs(compute = 1)
     cc <- computed()
     expect_null(cc$error)
     expect_true(cc$args$continuous)
-    expect_equal(cc$args$n_audit, 5000L)
+    expect_equal(cc$args$n_audit, 0L)
     expect_null(cc$args$step_sequence)
     expect_identical(cc$res$method, "continuous")
-    expect_equal(cc$res$n_audit, 5000L)
+    expect_equal(cc$res$n_audit, 0L)
     expect_true(cc$res$converged)
     expect_match(output$status$html, "continuous search", fixed = TRUE)
-    expect_match(output$status$html, "5,000 points", fixed = TRUE)
+    expect_match(output$status$html, "Verify it below", fixed = TRUE)
     # the R code behind the result reproduces the call
     code <- output$code_txt
     expect_match(code, "res <- optimal_design(", fixed = TRUE)
     expect_match(code, "continuous = TRUE", fixed = TRUE)
-    expect_match(code, "n_audit    = 5000", fixed = TRUE)
+    expect_match(code, "n_audit    = 0", fixed = TRUE)
     expect_match(code, "verify_optimality(", fixed = TRUE)
     expect_error(parse(text = code), NA)
 
-    # the verify panel checks over a grid at the typed step -- the grid check of
-    # a design from the continuous search
+    # the verify panel: a grid at the typed step -- the grid check of a design
+    # from the continuous search
     csv <- paste(c("dose,weight",
                    paste(format(cc$res$support[, 1], digits = 15),
                          format(cc$res$weights, digits = 15), sep = ",")),
                  collapse = "\n")
-    session$setInputs(verify_manual = csv, verify_step = "0.02", verify_btn = 1)
+    session$setInputs(verify_manual = csv, verify_mode = "grid", verify_step = "0.02",
+                      verify_btn = 1)
     v2 <- rv$verify$v
     expect_false(inherits(v2, "owea_bad"))
     expect_identical(v2$method, "grid")
@@ -379,12 +401,27 @@ test_that("the continuous search flows through the app to the solver", {
     expect_match(code2, "verify_optimality(", fixed = TRUE)
     expect_match(code2, "step\\s+= 0\\.02")                  # the check, on the grid
     expect_error(parse(text = code2), NA)
-    # an unusable step is refused before anything runs; an empty box falls back
-    # to the suggested step
-    session$setInputs(verify_step = "abc", verify_btn = 2)
+    # ... or a random audit of the region with a chosen number of points
+    session$setInputs(verify_mode = "audit", verify_audit = 3000, verify_btn = 2)
+    v3 <- rv$verify$v
+    expect_false(inherits(v3, "owea_bad"))
+    expect_identical(v3$method, "continuous")
+    expect_equal(v3$n_audit, 3000L)
+    expect_true(v3$is_optimal$value)
+    expect_match(rv$verify$space, "random audit of the design region with 3,000 points",
+                 fixed = TRUE)
+    code3 <- output$code_txt
+    expect_match(code3, "n_audit\\s+= 3000")                 # the check, by audit
+    expect_error(parse(text = code3), NA)
+    session$setInputs(verify_audit = 0, verify_btn = 3)
+    expect_true(inherits(rv$verify$v, "owea_bad"))
+    expect_match(rv$verify$v$msg, "positive number of random audit points")
+    # back to the grid: an unusable step is refused before anything runs; an
+    # empty box falls back to the suggested step
+    session$setInputs(verify_mode = "grid", verify_step = "abc", verify_btn = 4)
     expect_true(inherits(rv$verify$v, "owea_bad"))
     expect_match(rv$verify$v$msg, "positive grid step")
-    session$setInputs(verify_step = "", verify_btn = 3)
+    session$setInputs(verify_step = "", verify_btn = 5)
     expect_false(inherits(rv$verify$v, "owea_bad"))
     expect_identical(rv$verify$v$method, "grid")
     expect_true(rv$verify$v$is_optimal$value)
@@ -404,7 +441,7 @@ test_that("the simulation study's simple random sample works after a continuous 
   e <- app_env()
   shiny::testServer(e$server, {
     set_model(session, link = "identity", start = "none", search_mode = "continuous",
-              n_audit = 0, design_type = "exact", n_new = 12, seed = 1)
+              design_type = "exact", n_new = 12, seed = 1)
     session$setInputs(compute = 1)
     expect_null(computed()$error)
     expect_identical(computed()$res$approx$method, "continuous")

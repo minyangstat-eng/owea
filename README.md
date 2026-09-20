@@ -28,9 +28,8 @@ on it.
   stops when the equivalence theorem holds over a multi-start search plus a
   random audit of 20,000 points. Also in `exact_design()` and
   `verify_optimality()`, and in the app ("How to search the continuous
-  covariates", with the number of audit points as an input; the verify panel
-  can also check a continuous-search design over a grid at a step you
-  choose). See §3.
+  covariates"; the verify panel then checks the design on a grid at a step you
+  choose or by a random audit with the number of points you choose). See §3.
 - **R code from the app** — the results page ends with a runnable script: the
   exact `optimal_design()` / `exact_design()` call the app made, the
   `verify_optimality()` check at the grid step you chose, and, for an exact
