@@ -45,6 +45,26 @@ print_result <- function(res, title = "Optimal design") {
                 res$iterations,
                 if (isTRUE(res$n_audit > 0))
                   sprintf(" + a random audit of %d points", res$n_audit) else ""))
+  if (!is.null(res$elfving_bound) && is.finite(res$elfving_bound)) {
+    value <- if (isTRUE(res$p == 0L)) exp(res$criterion) else res$criterion
+    # is the design's information matrix singular?  Then the sensitivity
+    # function could not have certified it, and Elfving's bound is what did.
+    singular <- FALSE
+    if (!is.null(res$information)) {
+      ev <- tryCatch(eigen(as.matrix(res$information), symmetric = TRUE,
+                           only.values = TRUE)$values, error = function(e) NULL)
+      singular <- !is.null(ev) && min(ev) <= 1e-10 * max(ev)
+    }
+    cat(sprintf(paste0("c-optimality (one linear combination): Elfving's bound on the optimal ",
+                       "value = %.6g; this design = %.6g; gap = %.3g -> efficiency >= %.4f%%",
+                       "%s\n"),
+                res$elfving_bound, value, res$elfving_gap,
+                100 * res$efficiency_lower_bound,
+                if (isTRUE(res$converged) && singular)
+                  " (certified; the design is singular, which the sensitivity function cannot certify)"
+                else if (isTRUE(res$converged)) " (certified)"
+                else ""))
+  }
   cat("support point                    weight\n")
   for (i in seq_len(nrow(S))) {
     pt <- paste(.fmt_support_row(S[i, ], res$is_factor), collapse = ", ")

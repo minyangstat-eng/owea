@@ -1,5 +1,25 @@
 # owea 0.5.0
 
+* c-optimality (one linear combination c'theta: a one-row `wb` or `grad_g`, or
+  a one-parameter `subset`) is now certified by Elfving's bound instead of the
+  sensitivity function. For any h with h'c = 1, c'M(w)^-c >= 1/(h'infor0 h +
+  max_i h'A_i h) for every design w (Lagrangian dual of the convex criterion;
+  strong duality holds), so the best h gives the c-optimal value and any h a
+  valid lower bound. A design is certified when its value meets the bound
+  within `eps0`, and `efficiency_lower_bound` is bound / value. This also
+  certifies SINGULAR c-optimal designs (fewer support points than parameters),
+  which the sensitivity function -- built from a pseudo-inverse of the
+  information matrix -- reported as "did NOT converge" (e.g. estimating
+  theta0 - theta1 = eta(-1) in a two-parameter logistic model: the one-point
+  design at x = -1 is optimal, with value 4). The bound is exact on a grid or
+  candidate set via a small linear program when `lpSolve` is installed (new in
+  Suggests), otherwise (matrix-mode information, an existing design, no
+  lpSolve) a derivative-free minimisation that can only be looser, never
+  wrong; on the continuous path the maximum in the bound is over the points
+  examined. New result fields `elfving_bound`, `elfving_gap`, `elfving_h` in
+  `optimal_design()` and `verify_optimality()`; `exact_design()` inherits the
+  reference design's certified bound.
+
 * New `continuous = TRUE` option of `optimal_design()` (and `exact_design()`):
   the continuous covariates are searched in the CONTINUOUS design region
   instead of on a grid, so no `step_sequence` is needed and the cost no longer

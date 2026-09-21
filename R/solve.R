@@ -426,6 +426,25 @@ optimal_design <- function(design_box = NULL, step_sequence = NULL,
                      info_mode, info_vector, info_matrix, theta_use, k)
   infor0 <- i0$infor0; b <- i0$b
 
+  # c-optimality -- ONE linear combination c'theta (a one-row wb / grad_g, or a
+  # one-parameter subset).  Its optimal design is often singular, which the
+  # sensitivity function cannot certify; Elfving's bound can (see elfving.R).
+  # The design's value V = c' M^- c is exp(criterion) for p = 0, criterion for
+  # p = 1 (both normalised by v = 1).
+  is_c    <- nrow(wb_use) == 1L
+  cvec    <- if (is_c) as.numeric(wb_use) else NULL
+  c_value <- function(crit) if (p == 0L) exp(crit) else crit
+  certify_c <- function(cand, scaled) {              # grid / candidate-set paths
+    if (!is_c || is.null(cand$weights) || !length(cand$weights)) return(cand)
+    M <- infor0 + .opt_infor_from_support(cand$support, cand$weights, b, info_mode,
+                                          info_vector, info_matrix, theta_use, k)
+    cert <- .c_certificate(cvec, info_mode, scaled, infor0, k,
+                           c_value(cand$criterion), eps0, M = M)
+    cand$elfving   <- cert
+    cand$converged <- isTRUE(cand$converged) || isTRUE(cert$certified)
+    cand
+  }
+
   # solver: "owea" (OWEA exchange engine, default) or "MA" (the general
   # multiplicative algorithm as a direct solver).  MA covers D- and A-optimality,
   # any quantity of interest (subset / grad_g / wb) and an existing design; for a
@@ -462,9 +481,10 @@ optimal_design <- function(design_box = NULL, step_sequence = NULL,
     res <- .solve_engine(p, wb_use, info_mode, scaled, infor0,
                          init_idx, max_iter, eps0, FALSE, min_support = ms,
                          engine_mode = engine_mode, add_per_iter = add_per_iter)
-    list(support = X[res$index, , drop = FALSE], weights = res$weight,
-         criterion = res$value, max_d = res$sensitivity,
-         converged = res$sensitivity <= eps0, iterations = res$iter)
+    certify_c(list(support = X[res$index, , drop = FALSE], weights = res$weight,
+                   criterion = res$value, max_d = res$sensitivity,
+                   converged = res$sensitivity <= eps0, iterations = res$iter),
+              scaled)
   }
   solve_on_grid <- function(X, init_idx) solve_prepared(X, scaled_of(X), init_idx)
 
@@ -522,7 +542,7 @@ optimal_design <- function(design_box = NULL, step_sequence = NULL,
     cand$support <- mg$support; cand$weights <- mg$weights
     cand$criterion <- mg$value; cand$max_d <- ve$max_d
     cand$converged <- ve$max_d <= eps0
-    cand
+    certify_c(cand, scaled_grid)
   }
 
   # multistage refinement over a box (NO merging in the stages).  Tracks the grid
@@ -627,11 +647,17 @@ optimal_design <- function(design_box = NULL, step_sequence = NULL,
                 is_factor = is_factor, theta = theta,
                 coef_names = coef_names, link = model_link,
                 # certified lower bound on the efficiency vs the true optimum
-                # over this candidate set (Becker & Yang, Thm 4.5 / 4.6)
-                efficiency_lower_bound = .efficiency_bound(p, cand$max_d, cand$criterion,
-                                                           nrow(wb_use)),
+                # over this candidate set (Becker & Yang, Thm 4.5 / 4.6); for
+                # c-optimality Elfving's bound, which also covers singular designs
+                efficiency_lower_bound =
+                  if (is_c && !is.null(cand$elfving) && is.finite(cand$elfving$efficiency))
+                    cand$elfving$efficiency
+                  else .efficiency_bound(p, cand$max_d, cand$criterion, nrow(wb_use)),
                 global_max_d = if (cand$converged) cand$max_d else NA_real_,
                 global_check = cand$converged)
+    if (is_c && !is.null(cand$elfving))
+      out[c("elfving_bound", "elfving_gap", "elfving_h")] <-
+        list(cand$elfving$bound, cand$elfving$gap, cand$elfving$h)
     if (!cand$converged)
       warning(sprintf("optimal_design(): the returned design did NOT converge (max_d = %.3e > eps0 = %g); it is not optimal. Increase max_iter, coarsen the grid, or supply a warm start.",
                       cand$max_d, eps0), call. = FALSE)
@@ -681,6 +707,12 @@ optimal_design <- function(design_box = NULL, step_sequence = NULL,
     cs <- .cont_solve(ev, p, wb_use, infor0, ms, box_lo, box_hi, is_factor, nlevels,
                       init_sup, init_w, eps0, max_iter, n_starts, n_audit,
                       merge_tol, verbose)
+    c_cert <- NULL
+    if (is_c) {                                      # Elfving's bound over the region
+      c_cert <- .c_certificate_cont(ev, cvec, infor0, box_lo, box_hi, is_factor,
+                                    nlevels, cs$support, c_value(cs$criterion), eps0)
+      cs$converged <- isTRUE(cs$converged) || isTRUE(c_cert$certified)
+    }
     info_out <- infor0 + .opt_infor_from_support(cs$support, cs$weights, b,
                                                  info_mode, info_vector,
                                                  info_matrix, theta_use, k)
@@ -694,8 +726,13 @@ optimal_design <- function(design_box = NULL, step_sequence = NULL,
                 is_factor = is_factor, theta = theta,
                 coef_names = coef_names, link = model_link,
                 # the bound is over the points examined by the search + audit
-                efficiency_lower_bound = .efficiency_bound(p, cs$max_d, cs$criterion,
-                                                           nrow(wb_use)),
+                # (Elfving's bound for c-optimality)
+                efficiency_lower_bound =
+                  if (!is.null(c_cert) && is.finite(c_cert$efficiency)) c_cert$efficiency
+                  else .efficiency_bound(p, cs$max_d, cs$criterion, nrow(wb_use)),
+                elfving_bound = if (is.null(c_cert)) NULL else c_cert$bound,
+                elfving_gap   = if (is.null(c_cert)) NULL else c_cert$gap,
+                elfving_h     = if (is.null(c_cert)) NULL else c_cert$h,
                 global_max_d = cs$max_d, global_check = cs$converged,
                 method = "continuous", iterations = cs$iterations,
                 history = cs$history, maximiser = cs$maximiser,
@@ -779,10 +816,15 @@ optimal_design <- function(design_box = NULL, step_sequence = NULL,
               coef_names = coef_names, link = model_link,
               # certified lower bound on the efficiency vs the optimum over the
               # grids the design was checked on (replaced by the whole-box bound
-              # below when check_global runs)
-              efficiency_lower_bound = .efficiency_bound(p, res$max_d, res$criterion,
-                                                         nrow(wb_use)),
+              # below when check_global runs); Elfving's bound for c-optimality
+              efficiency_lower_bound =
+                if (is_c && !is.null(res$elfving) && is.finite(res$elfving$efficiency))
+                  res$elfving$efficiency
+                else .efficiency_bound(p, res$max_d, res$criterion, nrow(wb_use)),
               global_max_d = NA_real_, global_check = NA)
+  if (is_c && !is.null(res$elfving))
+    out[c("elfving_bound", "elfving_gap", "elfving_h")] <-
+      list(res$elfving$bound, res$elfving$gap, res$elfving$h)
 
   if (isTRUE(res$converged)) {
     if (isTRUE(check_global)) {
@@ -811,6 +853,17 @@ optimal_design <- function(design_box = NULL, step_sequence = NULL,
         out$global_check <- (g$max_d <= eps0)
         out$efficiency_lower_bound <- .efficiency_bound(p, g$max_d, res$criterion,
                                                         nrow(wb_use))
+        if (is_c) {                                  # Elfving's bound on the whole-box grid
+          Xv <- .factor_make_grid(box_lo, box_hi, gstep, is_factor, nlevels)
+          gc <- certify_c(list(support = res$support, weights = res$weights,
+                               criterion = res$criterion, converged = FALSE),
+                          scaled_of(Xv))
+          out$global_check <- isTRUE(gc$converged)
+          if (is.finite(gc$elfving$efficiency))
+            out$efficiency_lower_bound <- gc$elfving$efficiency
+          out[c("elfving_bound", "elfving_gap", "elfving_h")] <-
+            list(gc$elfving$bound, gc$elfving$gap, gc$elfving$h)
+        }
         if (verbose)
           cat(sprintf("  global check (step (%s), |X|=%d): max_d = %.3e -> %s\n",
                       gstep_lab, g$npoints, g$max_d,

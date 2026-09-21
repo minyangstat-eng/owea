@@ -35,7 +35,8 @@ Suggests:
     MASS,
     shiny,
     DT,
-    rsconnect
+    rsconnect,
+    lpSolve
 RoxygenNote: 7.3.2
 NeedsCompilation: yes
 URL: https://github.com/minyangstat-eng/owea

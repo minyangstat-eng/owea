@@ -307,6 +307,18 @@ list with \code{support}, \code{weights}, \code{criterion},
   For the multistage (\code{design_box}) path a \code{converged} design is
   optimal only over the refined neighbourhood grids unless
   \code{check_global = TRUE} certifies it over the whole box.
+  For c-optimality (a one-row \code{wb} / \code{grad_g}, or a one-parameter
+  \code{subset}) the certificate is Elfving's bound rather than the
+  sensitivity function, which cannot certify a singular design: for any
+  \eqn{h} with \eqn{h'c = 1}, \eqn{c'M(w)^-c \ge 1/(h'I_0 h + \max_i h'A_i h)}
+  for every design, and the best \eqn{h} attains the optimum. The result then
+  carries \code{elfving_bound} (a lower bound on the optimal value
+  \eqn{c'M^-c}), \code{elfving_gap} (design value minus bound; \code{converged}
+  is \code{TRUE} when it is within \code{eps0}) and \code{elfving_h}, and
+  \code{efficiency_lower_bound} is bound / value. The bound is exact on a grid
+  or candidate set (a linear program via the suggested package
+  \code{lpSolve}, else a derivative-free minimisation that can only be
+  looser); on the continuous path its maximum is over the points examined.
   With \code{continuous = TRUE} the result also carries
   \code{method = "continuous"}, \code{iterations}, \code{history} (one row
   per iteration: time, support size, criterion, max sensitivity),

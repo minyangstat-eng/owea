@@ -265,6 +265,7 @@ verify_optimality <- function(support, weights = NULL,
   # (skipped under criterion_only: it is the only part that needs the grid)
   oi <- .opt_infor_from_support(support, weights, b, info_mode, info_vector,
                                 info_matrix, theta_use, k)
+  ev <- NULL; scaled <- NULL
   ve <- if (criterion_only) NULL else if (cont_mode) {
     # multi-start maximisation of the directional derivative over the region,
     # plus the random audit; the maximiser is a point of the region
@@ -290,10 +291,35 @@ verify_optimality <- function(support, weights = NULL,
                         matrix(as.numeric(M), ncol = 1L),
                         as.matrix(wb_use), matrix(0.0, k, k))
 
+  # ---- c-optimality: Elfving's bound certifies also a SINGULAR design ------
+  # (one linear combination; see elfving.R).  The design's value c'M^-c is
+  # exp(crit) for p = 0 and crit for p = 1.
+  is_c <- nrow(as.matrix(wb_use)) == 1L
+  cert <- NULL
+  if (is_c && !criterion_only) {
+    cvec  <- as.numeric(wb_use)
+    value <- if (p == 0L) exp(crit) else crit
+    cert  <- if (cont_mode)
+      .c_certificate_cont(ev, cvec, infor0, lo, hi, is_factor, nlevels, support,
+                          value, tol)
+    else
+      .c_certificate(cvec, info_mode, scaled, infor0, k, value, tol,
+                     M = unname(M))
+  }
+
   is_opt <- if (criterion_only)
     list(value = NA,
          note  = paste0("criterion_only: the max-sensitivity check was ",
                         "skipped, so optimality was NOT assessed."))
+  else if (!is.null(cert))
+    list(value = isTRUE(ve$max_d <= tol) || isTRUE(cert$certified),
+         note  = sprintf(paste0("c-optimality (one linear combination): 'value' is TRUE ",
+                                "when Elfving's bound certifies the design (optimal value ",
+                                ">= %.6g, this design %.6g, gap %.3g <= tol = %g%s) or ",
+                                "the max sensitivity is <= tol. The sensitivity alone ",
+                                "cannot certify a singular design."),
+                         cert$bound, if (p == 0L) exp(crit) else crit, cert$gap, tol,
+                         if (cont_mode) "; bound over the points examined" else ""))
   else if (cont_mode)
     list(value = isTRUE(ve$max_d <= tol),
          note  = sprintf(paste0("'value' is TRUE when max_sensitivity <= tol over the ",
@@ -310,9 +336,14 @@ verify_optimality <- function(support, weights = NULL,
        max_sensitivity = if (criterion_only) NA_real_ else ve$max_d,
        criterion       = crit,
        # certified lower bound on the efficiency vs the true optimum over the
-       # design space scanned (Becker & Yang, Thm 4.5 / 4.6); NA if not scanned
+       # design space scanned (Becker & Yang, Thm 4.5 / 4.6; Elfving's bound
+       # for c-optimality); NA if not scanned
        efficiency_lower_bound = if (criterion_only) NA_real_
+                                else if (!is.null(cert) && is.finite(cert$efficiency))
+                                  cert$efficiency
                                 else .efficiency_bound(p, ve$max_d, crit, nrow(wb_use)),
+       elfving_bound   = if (is.null(cert)) NULL else cert$bound,
+       elfving_gap     = if (is.null(cert)) NULL else cert$gap,
        information     = M,
        maximiser       = if (criterion_only) NULL else if (cont_mode) ve$x
                          else X[ve$index, ],

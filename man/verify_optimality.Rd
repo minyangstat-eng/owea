@@ -118,7 +118,13 @@ a list with \code{is_optimal} -- itself a list with \code{value}
   attaining the maximum sensitivity), and echoes of \code{support},
   \code{weights}, \code{p}, \code{tol}, plus \code{method} (\code{"grid"},
   \code{"candidate_set"} or \code{"continuous"}) and, for the continuous
-  mode, \code{n_audit} and \code{audit_max_d}. Under \code{criterion_only} the
+  mode, \code{n_audit} and \code{audit_max_d}. For c-optimality (a one-row
+  \code{wb} / \code{grad_g}, or a one-parameter \code{subset})
+  \code{is_optimal$value} is \code{TRUE} when Elfving's bound certifies the
+  design (see \code{\link{optimal_design}}; this also certifies a singular
+  design, which the sensitivity function cannot), \code{elfving_bound} and
+  \code{elfving_gap} are returned, and \code{efficiency_lower_bound} is
+  bound / value. Under \code{criterion_only} the
   sensitivity fields are placeholders: \code{is_optimal$value} and
   \code{max_sensitivity} are \code{NA} and \code{maximiser} is \code{NULL}.
 }

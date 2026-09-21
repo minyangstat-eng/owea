@@ -38,6 +38,13 @@ on it.
   pool a first stage as the app does).
 - **Analytic derivatives for formula-style models** and finite differences
   (or your own `info_jacobian`) for user-supplied model functions.
+- **c-optimality certified by Elfving's bound** — for a single linear
+  combination `c'θ` (one-row `wb`/`grad_g`, one-parameter `subset`) the
+  optimal design is often singular, which the sensitivity function cannot
+  certify. `optimal_design()` and `verify_optimality()` now use Elfving's dual
+  bound (`elfving_bound`, `elfving_gap`; exact on a grid via `lpSolve` when
+  installed), so such designs report `converged = TRUE` and an efficiency bound
+  of 100% instead of "did NOT converge". See §5.
 
 ## What's new in 0.4.1
 
@@ -339,9 +346,21 @@ optimal_design(info_matrix = info_mat, theta = th, design_box = box,
 ```
 
 > Note: for a partial-parameter / general `g(θ)` the optimum can drive the
-> *full* information matrix toward singularity, where the equivalence theorem
-> cannot certify optimality. The run does not crash (a pseudo-inverse is used),
-> but may end with `converged = FALSE` while the criterion has stabilized.
+> *full* information matrix toward singularity, where the sensitivity function
+> (built from a pseudo-inverse) cannot certify optimality. For **one** linear
+> combination `c'θ` (a one-row `wb`/`grad_g`, a one-parameter `subset`) the
+> package therefore uses **Elfving's bound**: for any `h` with `h'c = 1`,
+> `c'M(w)⁻c ≥ 1 / (h'I₀h + maxᵢ h'Aᵢh)` for every design, and the best `h`
+> attains the optimum. The design is `converged` when its value meets the bound
+> within `eps0`, `efficiency_lower_bound = bound / value`, and the bound itself
+> is reported as `elfving_bound` / `elfving_gap`. Example: estimating
+> `θ₀ − θ₁ = η(−1)` in a two-parameter logistic model, the one-point design at
+> `x = −1` is c-optimal (value 4 = 1/ν(0)) although its information matrix is
+> singular; it is certified with a gap of 0. The bound is exact on a grid or
+> candidate set through a small linear program (`lpSolve`, in Suggests) and
+> falls back to a derivative-free minimisation otherwise (valid, possibly
+> looser). For `v ≥ 2` quantities of interest with a singular optimum the run
+> may still end with `converged = FALSE` while the criterion has stabilized.
 
 ---
 

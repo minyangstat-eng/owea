@@ -445,7 +445,12 @@ exact_design <- function(n,
   # solved, times that design's own certified bound (Theorems 4.5 / 4.6) --
   # a guaranteed lower bound, so a reference that stopped short of the
   # optimum cannot inflate it.
-  approx_bound <- .efficiency_bound(p, appr$max_d, appr$criterion, nrow(wb_use))
+  # the approximate design's own certified bound (Elfving's for c-optimality,
+  # the whole-box value when check_global ran), else recomputed from max_d
+  approx_bound <- if (!is.null(appr$efficiency_lower_bound) &&
+                      is.finite(appr$efficiency_lower_bound))
+                    appr$efficiency_lower_bound
+                  else .efficiency_bound(p, appr$max_d, appr$criterion, nrow(wb_use))
   eff_vs_appr  <- if (p == 0L) exp(appr$criterion - crit_exact)
                   else          appr$criterion / crit_exact
   efficiency <- min(eff_vs_appr, 1) * approx_bound
