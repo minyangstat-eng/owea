@@ -21,6 +21,11 @@
 
 library(shiny)
 library(owea)
+# lpSolve is an optional dependency of owea (the exact linear program behind
+# Elfving's certificate of c-optimality, used when a single parameter is of
+# interest).  Naming it here makes a deployment (shinyapps.io) install it; the
+# package falls back to a derivative-free bound without it.
+requireNamespace("lpSolve", quietly = TRUE)
 
 MAX_COV   <- 6L
 LINKS     <- c("Linear (normal)"        = "identity",
