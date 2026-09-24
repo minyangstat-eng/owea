@@ -1608,16 +1608,14 @@ server <- function(input, output, session) {
     rv$sim <- s
   })
   # the simple random sample: n runs from the finest-step grid after a grid
-  # computation, or uniformly from the continuous region after a continuous
-  # search (which has no grid) -- see .ui_srs_design()
+  # computation (drawn index by index, so the grid is never built, however
+  # fine the step), or uniformly from the continuous region after a continuous
+  # search -- see .ui_srs_design()
   observeEvent(input$run_srs, {
     c <- computed(); req(is.null(c$error))
     s <- rv$sim; s$pool_warn <- NULL
     r <- tryCatch({
       d <- owea:::.ui_srs_design(c$sp, c$n)
-      if (is.finite(d$pool_size) && d$pool_size > 1e6)
-        s$pool_warn <- sprintf(paste0("The SRS candidate pool has %d points; ",
-          "consider coarsening the step."), d$pool_size)
       s$srs_design <- list(support = d$support, counts = d$counts)
       sim_run(d$support, d$counts)
     }, error = function(e) e)
@@ -2484,14 +2482,11 @@ server <- function(input, output, session) {
   observeEvent(input$cmp_run_srs, {
     c2 <- cmp_computed(); req(is.null(c2$error))
     rv$cmp_sim$srs <- tryCatch({
-      pool <- candidate_grid(c2$specs[[1]]$design_box, c2$specs[[1]]$finest)
+      # a simple random sample from the finest-step grid, drawn without
+      # building the grid (see .ui_srs_design())
       set.seed(as.integer(input$cmp_sim_seed %||% 1))
-      pick <- pool[sample.int(nrow(pool), c2$n, replace = TRUE), , drop = FALSE]
-      key <- apply(pick, 1, paste, collapse = "\r")
-      u   <- !duplicated(key)
-      sup <- pick[u, , drop = FALSE]
-      cnt <- as.integer(table(factor(key, levels = key[u])))
-      cmp_sim_run(sup, cnt)
+      d <- owea:::.ui_srs_design(c2$specs[[1]], c2$n)
+      cmp_sim_run(d$support, d$counts)
     }, error = function(e) e)
   })
 

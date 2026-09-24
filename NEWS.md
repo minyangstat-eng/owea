@@ -85,8 +85,14 @@
   random sample failed with "each grid step must be a scalar ..." because it
   drew the runs from a grid the continuous search does not have. The sample is
   now drawn uniformly from the continuous region (factors uniformly over their
-  levels); after a grid computation it is drawn from the finest-step grid as
-  before.
+  levels); after a grid computation it is drawn from the finest-step grid.
+* App: the simulation study's simple random sample from the finest-step grid
+  no longer builds that grid, which grows exponentially with the number of
+  covariates as the step shrinks (it used to be materialised and could exceed
+  memory). The grid is a Cartesian product, so a grid index is drawn
+  independently for each covariate: exactly uniform over the grid points,
+  instant for any step. Both the single-criterion and the compound branch use
+  it.
 * Benchmarks (logistic model, D- and A-optimality): three covariates on
   [-2,2] x [-1,1] x [-3,3] -- the continuous search reaches the grid path's
   designs (marginally better criteria) in 0.3-0.5 s versus 2.4 s for the

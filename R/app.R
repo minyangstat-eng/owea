@@ -547,27 +547,38 @@
 
 # ---- a simple random sample of n runs from the design space -----------------
 # The comparison design of the app's simulation study.  After a grid
-# computation the runs are drawn (with replacement) from the finest-step grid;
-# after a continuous search there is no grid, so each run is drawn uniformly
-# from the continuous region (factors uniformly over their levels).  Returns
-# the distinct points with their run counts, and the pool size (NA for the
-# continuous draw).
+# computation the runs are a simple random sample (with replacement) from the
+# finest-step grid: the grid is a Cartesian product, so drawing a grid index
+# independently for each covariate is exactly uniform over the grid points --
+# WITHOUT building the grid, whose size grows exponentially with the number
+# of covariates as the step shrinks.  (Drawing a continuous point and rounding
+# it to the step is almost the same, except that the two ends of each range
+# would get half the probability of an interior point.)  After a continuous
+# search there is no grid, so each run is drawn uniformly from the continuous
+# region.  Factors are uniform over their levels in both cases.  Returns the
+# distinct points with their run counts, and the (implied) pool size (NA for
+# the continuous draw).
 .ui_srs_design <- function(spec, n) {
   n <- suppressWarnings(as.integer(n))
   if (is.na(n) || n < 1L)
     stop("the simple random sample needs n >= 1.", call. = FALSE)
   meta <- .parse_design_box(spec$design_box)
   d <- length(meta$is_factor)
-  if (isTRUE(spec$continuous) || !length(spec$finest)) {
-    pts <- matrix(0, n, d)
-    for (j in seq_len(d))
-      pts[, j] <- if (meta$is_factor[j]) sample.int(meta$nlevels[j], n, replace = TRUE)
-                  else stats::runif(n, meta$lo[j], meta$hi[j])
-    pool_size <- NA_real_
-  } else {
-    pool <- candidate_grid(spec$design_box, spec$finest)
-    pts  <- pool[sample.int(nrow(pool), n, replace = TRUE), , drop = FALSE]
-    pool_size <- nrow(pool)
+  on_grid <- !isTRUE(spec$continuous) && length(spec$finest) > 0L
+  by <- if (on_grid) .expand_stage_step(as.numeric(spec$finest), meta$is_factor,
+                                        sum(!meta$is_factor), d) else NULL
+  pts <- matrix(0, n, d); pool_size <- if (on_grid) 1 else NA_real_
+  for (j in seq_len(d)) {
+    if (meta$is_factor[j]) {
+      pts[, j] <- sample.int(meta$nlevels[j], n, replace = TRUE)
+      if (on_grid) pool_size <- pool_size * meta$nlevels[j]
+    } else if (on_grid) {                       # grid values lo + (0..m-1) * step
+      m <- round((meta$hi[j] - meta$lo[j]) / by[j]) + 1
+      pts[, j] <- meta$lo[j] + (sample.int(m, n, replace = TRUE) - 1) * by[j]
+      pool_size <- pool_size * m
+    } else {
+      pts[, j] <- stats::runif(n, meta$lo[j], meta$hi[j])
+    }
   }
   keys <- do.call(paste, c(as.data.frame(pts), sep = "\r"))
   uk   <- unique(keys)

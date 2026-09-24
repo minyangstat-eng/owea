@@ -182,9 +182,32 @@ test_that(".ui_srs_design draws a simple random sample from a grid or the contin
   set.seed(1)
   d <- owea:::.ui_srs_design(spg, 30)
   expect_equal(sum(d$counts), 30L)
-  expect_equal(d$pool_size, 10)                       # 2 levels x 5 grid values
+  expect_equal(d$pool_size, 10)                       # 2 levels x 5 grid values (implied)
   expect_true(all(d$support[, 2] %in% seq(-1, 1, by = 0.5)))
   expect_true(all(d$support[, 1] %in% 1:2))
+  # the grid is never built: a step so fine that the grid would have 1e18 points
+  sph <- owea:::.ui_model_spec(
+    list(list(name = "u", type = "continuous", lo = 0, hi = 1, steps = 1e-6),
+         list(name = "v", type = "continuous", lo = -5, hi = 5, steps = 1e-6),
+         list(name = "w", type = "continuous", lo = 0, hi = 100, steps = 1e-6)),
+    link = "identity")
+  set.seed(3)
+  tm <- system.time(dh <- owea:::.ui_srs_design(sph, 50))[3]
+  expect_lt(tm, 2)
+  expect_equal(sum(dh$counts), 50L)
+  expect_equal(dh$pool_size, (1e6 + 1) * (1e7 + 1) * (1e8 + 1))
+  expect_true(all(abs(dh$support[, 1] / 1e-6 - round(dh$support[, 1] / 1e-6)) < 1e-6))
+  expect_true(all(dh$support[, 2] >= -5 & dh$support[, 2] <= 5))
+  # every grid point is equally likely, including the two ends of a range:
+  # with 3 grid values per draw, the ends are hit about a third of the time each
+  sp3 <- owea:::.ui_model_spec(
+    list(list(name = "x", type = "continuous", lo = 0, hi = 1, steps = 0.5)),
+    link = "identity")
+  set.seed(4)
+  d3 <- owea:::.ui_srs_design(sp3, 3000)
+  frac <- d3$counts / sum(d3$counts)
+  expect_equal(sort(d3$support[, 1]), c(0, 0.5, 1))
+  expect_true(all(abs(frac - 1 / 3) < 0.05))
   # a continuous search has no grid: uniform draws from the region
   spc <- owea:::.ui_model_spec(
     list(list(name = "A", type = "factor", nlevels = 2),
