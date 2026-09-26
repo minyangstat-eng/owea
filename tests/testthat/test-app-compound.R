@@ -780,12 +780,35 @@ test_that("the compound exact design's R code grows with the simulation study", 
 
     session$setInputs(cmp_run_srs = 1)
     expect_false(inherits(rv$cmp_sim$srs, "error"))
-    expect_equal(sum(rv$cmp_sim$srs_design$counts), 24L)
+    expect_equal(sum(rv$cmp_sim_designs$srs$counts), 24L)
+    # the compared design lives outside rv$cmp_sim: every entry of that store
+    # is a simulation result, and the note and the chart walk all of them
+    # (storing the design there broke the note with "subscript out of bounds")
+    expect_equal(sort(names(rv$cmp_sim)), c("design", "srs"))
+    note <- paste(as.character(output$cmp_sim_note$html), collapse = "\n")
+    expect_match(note, "this design 10/10")
+    expect_match(note, "random 10/10")
+    expect_silent(output$cmp_sim_tbl)
     code3 <- output$cmp_code_txt
     expect_match(code3, "srs_support <- rbind\\(")
     expect_match(code3, "sim_srs_2 <- simulate_design\\(")
     expect_match(code3, "mse_2 <- rbind\\(`This design` = sim_2\\$mse, SRS = sim_srs_2\\$mse\\)")
     # the script is valid R
     expect_silent(parse(text = code3))
+
+    # a custom design with the right number of runs joins the study and the code
+    session$setInputs(cmp_sim_custom = "x1,x2,count\n-2,-2,8\n2,2,8\n0,0,8",
+                      cmp_run_custom = 1)
+    expect_false(inherits(rv$cmp_sim$custom, "error"))
+    expect_equal(rv$cmp_sim_designs$custom$counts, c(8L, 8L, 8L))
+    expect_equal(sort(names(rv$cmp_sim)), c("custom", "design", "srs"))
+    note <- paste(as.character(output$cmp_sim_note$html), collapse = "\n")
+    expect_match(note, "custom 10/10")
+    expect_silent(output$cmp_sim_tbl)
+    code4 <- output$cmp_code_txt
+    expect_match(code4, "custom_support <- rbind\\(")
+    expect_match(code4, "custom_counts  <- c\\(8, 8, 8\\)")
+    expect_match(code4, "SRS = sim_srs_1\\$mse, Custom = sim_custom_1\\$mse\\)")
+    expect_silent(parse(text = code4))
   })
 })

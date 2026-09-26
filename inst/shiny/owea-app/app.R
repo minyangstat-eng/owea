@@ -2056,7 +2056,8 @@ server <- function(input, output, session) {
   cmp_go <- reactiveVal(0)
   observeEvent(input$cmp_compute, cmp_go(cmp_go() + 1))
   observeEvent(input$cmp_compute, {
-    rv$cmp_verify <- NULL; rv$cmp_sim <- list(); rv$cmp_show_sim <- FALSE
+    rv$cmp_verify <- NULL; rv$cmp_sim <- list(); rv$cmp_sim_designs <- list()
+    rv$cmp_show_sim <- FALSE
   })
 
   cmp_computed <- eventReactive(cmp_go(), {
@@ -2489,7 +2490,9 @@ server <- function(input, output, session) {
       # building the grid (see .ui_srs_design())
       set.seed(as.integer(input$cmp_sim_seed %||% 1))
       d <- owea:::.ui_srs_design(c2$specs[[1]], c2$n)
-      rv$cmp_sim$srs_design <- list(support = d$support, counts = d$counts)
+      # kept apart from rv$cmp_sim, whose entries are simulation results
+      # (the note and the chart walk all of them)
+      rv$cmp_sim_designs$srs <- list(support = d$support, counts = d$counts)
       cmp_sim_run(d$support, d$counts)
     }, error = function(e) e)
   })
@@ -2499,7 +2502,7 @@ server <- function(input, output, session) {
   # compound_criterion() scoring for an approximate design and, for an exact
   # design whose simulation study has been run, that study
   cmp_sim_code_info <- reactive({
-    c2 <- cmp_computed(); s <- rv$cmp_sim
+    c2 <- cmp_computed(); s <- rv$cmp_sim; dd <- rv$cmp_sim_designs
     if (!isTRUE(c2$exact) || is.null(s$design) || inherits(s$design, "error")) return(NULL)
     ex <- c2$existing
     keep <- function(res, dsg) if (!is.null(res) && !inherits(res, "error")) dsg else NULL
@@ -2513,8 +2516,8 @@ server <- function(input, output, session) {
                 counts = ex$counts %||% owea:::.apportion(ex$weights, as.integer(ex$n0)))
            else NULL,
          designs = Filter(Negate(is.null),
-                          list(SRS = keep(s$srs, s$srs_design),
-                               Custom = keep(s$custom, s$custom_design))))
+                          list(SRS = keep(s$srs, dd$srs),
+                               Custom = keep(s$custom, dd$custom))))
   })
   cmp_r_code <- reactive({
     c2 <- cmp_computed(); req(is.null(c2$error))
@@ -2556,8 +2559,8 @@ server <- function(input, output, session) {
       if (sum(cnt) != c2$n)
         stop(sprintf("the counts must sum to %d, the same number of runs as the ",
                      c2$n), "computed design.", call. = FALSE)
-      rv$cmp_sim$custom_design <- list(support = d$support,
-                                       counts = as.integer(round(cnt)))
+      rv$cmp_sim_designs$custom <- list(support = d$support,
+                                        counts = as.integer(round(cnt)))
       cmp_sim_run(d$support, as.integer(round(cnt)))
     }, error = function(e) e)
   })
@@ -2637,7 +2640,7 @@ server <- function(input, output, session) {
                      "designs across a row."))
     lab <- c(design = "this design", srs = "random", custom = "custom")
     conv <- character(0); wild <- character(0)
-    for (slot in names(s)) {
+    for (slot in intersect(names(lab), names(s))) {   # the result slots only
       v <- s[[slot]]
       if (!is.list(v) || inherits(v, "error")) next
       sj <- v[[j]]
