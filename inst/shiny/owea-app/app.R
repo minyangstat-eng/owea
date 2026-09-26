@@ -416,7 +416,10 @@ ui <- fluidPage(
                  br(), uiOutput("cmp_info_pick"),
                  tableOutput("cmp_info_tbl"))
       ),
-      uiOutput("cmp_post_result")
+      uiOutput("cmp_post_result"),
+      # last, so it can include every step above (the design, its scoring or
+      # its simulation study)
+      uiOutput("cmp_code_panel")
     )
   ),
 
@@ -2486,8 +2489,59 @@ server <- function(input, output, session) {
       # building the grid (see .ui_srs_design())
       set.seed(as.integer(input$cmp_sim_seed %||% 1))
       d <- owea:::.ui_srs_design(c2$specs[[1]], c2$n)
+      rv$cmp_sim$srs_design <- list(support = d$support, counts = d$counts)
       cmp_sim_run(d$support, d$counts)
     }, error = function(e) e)
+  })
+
+  # ---- the R code behind the compound result (rendered LAST) --------------
+  # the compound_design() / compound_exact_design() call the app made, the
+  # compound_criterion() scoring for an approximate design and, for an exact
+  # design whose simulation study has been run, that study
+  cmp_sim_code_info <- reactive({
+    c2 <- cmp_computed(); s <- rv$cmp_sim
+    if (!isTRUE(c2$exact) || is.null(s$design) || inherits(s$design, "error")) return(NULL)
+    ex <- c2$existing
+    keep <- function(res, dsg) if (!is.null(res) && !inherits(res, "error")) dsg else NULL
+    any_identity <- any(vapply(c2$specs, function(sp) identical(sp$link, "identity"), logical(1)))
+    list(theta = cmp_sim_theta(),
+         sigma = if (any_identity) as.numeric(input$cmp_sim_sigma %||% 1) else NULL,
+         nsim  = as.integer(input$cmp_sim_nsim %||% 500),
+         seed  = as.integer(input$cmp_sim_seed %||% 1),
+         existing = if (!is.null(ex))
+           list(points = ex$points,
+                counts = ex$counts %||% owea:::.apportion(ex$weights, as.integer(ex$n0)))
+           else NULL,
+         designs = Filter(Negate(is.null),
+                          list(SRS = keep(s$srs, s$srs_design),
+                               Custom = keep(s$custom, s$custom_design))))
+  })
+  cmp_r_code <- reactive({
+    c2 <- cmp_computed(); req(is.null(c2$error))
+    vargs <- if (c2$exact) NULL else
+      tryCatch(owea:::.uic_solver_args(
+        c2$specs, c2$comps, "verify", alpha = cmp_alpha(),
+        efficiency = isTRUE(c2$res$efficiency_weighted), existing = c2$existing),
+        error = function(e) NULL)
+    owea:::.uic_r_code(c2$args, exact = isTRUE(c2$exact), verify_args = vargs,
+                       sim = cmp_sim_code_info())
+  })
+  output$cmp_code_txt <- renderText(cmp_r_code())
+  output$cmp_dl_code <- downloadHandler(
+    filename = function() "owea_compound_design.R",
+    content  = function(file) writeLines(cmp_r_code(), file))
+  output$cmp_code_panel <- renderUI({
+    c2 <- cmp_computed(); req(is.null(c2$error))
+    has_sim <- !is.null(cmp_sim_code_info())
+    tagList(
+      hr(),
+      tags$h4("R code for this analysis"),
+      helpText("The exact call the app made",
+               if (!c2$exact) ", followed by the scoring of the design under the same compound criterion",
+               if (has_sim) ", followed by the simulation study as run above (with the designs it compared)",
+               ". Copy it, or download it, to rerun and adapt the computation in R."),
+      verbatimTextOutput("cmp_code_txt"),
+      downloadButton("cmp_dl_code", "Download R code (.R)"))
   })
 
   observeEvent(input$cmp_run_custom, {
@@ -2502,6 +2556,8 @@ server <- function(input, output, session) {
       if (sum(cnt) != c2$n)
         stop(sprintf("the counts must sum to %d, the same number of runs as the ",
                      c2$n), "computed design.", call. = FALSE)
+      rv$cmp_sim$custom_design <- list(support = d$support,
+                                       counts = as.integer(round(cnt)))
       cmp_sim_run(d$support, as.integer(round(cnt)))
     }, error = function(e) e)
   })

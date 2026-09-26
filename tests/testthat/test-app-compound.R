@@ -633,3 +633,159 @@ test_that("cached psi_star and reference_bound are accepted by the exact and ver
   cc <- do.call(compound_criterion, c(list(support = r$support, weights = r$weights), v))
   expect_equal(unname(cc$efficiency_lower_bound), unname(r$efficiency_lower_bound), tolerance = 1e-8)
 })
+
+# ---- the R code behind a compound result -----------------------------------
+
+test_that(".uic_r_code reproduces an approximate compound design and its scoring", {
+  sp <- owea:::.uic_specs(covs2(), comps3())
+  a  <- owea:::.uic_solver_args(sp, comps3(), "design", alpha = c(.4, .35, .25))
+  v  <- owea:::.uic_solver_args(sp, comps3(), "verify", alpha = c(.4, .35, .25),
+                                efficiency = TRUE)
+  code <- owea:::.uic_r_code(a, exact = FALSE, verify_args = v)
+  expect_match(code, "library\\(owea\\)")
+  expect_match(code, "components <- list\\(")
+  expect_match(code, "name\\s+= \"m1\"")
+  expect_match(code, "res <- compound_design\\(")
+  expect_match(code, "components\\s+= components")
+  expect_match(code, "alpha\\s+= c\\(0.4, 0.35, 0.25\\)")
+  # the scoring call reuses the reference values of the design, not cached numbers
+  expect_match(code, "v <- compound_criterion\\(")
+  expect_match(code, "support\\s+= res\\$support")
+  expect_match(code, "psi_star\\s+= res\\$psi_star")
+  expect_match(code, "reference_bound\\s+= res\\$reference_bound")
+  expect_false(grepl("psi_star\\s+= c\\(", code))
+  expect_match(code, "max_points\\s+= Inf")
+  expect_false(grepl("simulate_design", code))
+  # the script runs, and reproduces the app's numbers
+  expect_silent(exprs <- parse(text = code))
+  env <- new.env(parent = globalenv())
+  invisible(capture.output(eval(exprs, envir = env)))
+  direct <- do.call(compound_design, a)
+  expect_equal(env$res$criterion, direct$criterion, tolerance = 1e-8)
+  expect_equal(env$v$criterion, env$res$criterion, tolerance = 1e-6)
+  expect_lt(env$v$max_d, 1e-6)
+  expect_equal(unname(env$v$efficiency_lower_bound),
+               unname(env$res$efficiency_lower_bound), tolerance = 1e-6)
+})
+
+test_that(".uic_r_code adds the per-objective simulation study for an exact design", {
+  sp <- owea:::.uic_specs(covs2(), comps3())
+  ea <- owea:::.uic_solver_args(sp, comps3(), "exact", alpha = c(.4, .35, .25),
+                                n = 24L)
+  ea$seed <- 1L
+  # without a simulation study: the design call only
+  code0 <- owea:::.uic_r_code(ea, exact = TRUE)
+  expect_match(code0, "res <- compound_exact_design\\(")
+  expect_match(code0, "n\\s+= 24")
+  expect_false(grepl("compound_criterion|simulate_design", code0))
+
+  srs <- list(support = rbind(c(-2, -2), c(2, -2), c(-2, 2), c(2, 2)),
+              counts = c(6L, 6L, 6L, 6L))
+  sim <- list(theta = list(c(0.5, 1, -1), NULL, c(0.2, 0.3, -0.3)),
+              sigma = NULL, nsim = 10L, seed = 3L, existing = NULL,
+              designs = list(SRS = srs))
+  code <- owea:::.uic_r_code(ea, exact = TRUE, sim = sim)
+  expect_match(code, "theta_true_1 <- c\\(0.5, 1, -1\\)")
+  expect_match(code, "theta_true_2 <- c\\(0.5, 1, -1, 0.5\\)")   # falls back to the assumed values
+  expect_match(code, "srs_support <- rbind\\(")
+  expect_match(code, "srs_counts  <- c\\(6, 6, 6, 6\\)")
+  expect_match(code, "sim_3 <- simulate_design\\(")
+  expect_match(code, "link\\s+= \"loglinear\"")
+  expect_match(code, "mse_2 <- rbind\\(`This design` = sim_2\\$mse, SRS = sim_srs_2\\$mse\\)")
+  expect_false(grepl("sigma", code))                # no identity-link objective
+
+  expect_silent(exprs <- parse(text = code))
+  env <- new.env(parent = globalenv())
+  invisible(capture.output(eval(exprs, envir = env)))
+  expect_equal(sum(env$res$counts), 24L)
+  expect_equal(rownames(env$mse_2), c("This design", "SRS"))
+  expect_equal(ncol(env$mse_2), 4L)
+  # ... and the study is the one the app runs: same seed, same numbers
+  app_sim <- owea:::.uic_simulate(sp, comps3(), support = env$res$support,
+                                  counts = env$res$counts,
+                                  true_theta = sim$theta, nsim = 10L, seed = 3L)
+  for (j in 1:3)
+    expect_equal(unname(env[[sprintf("sim_%d", j)]]$mse),
+                 unname(app_sim[[j]]$mse))
+  app_srs <- owea:::.uic_simulate(sp, comps3(), support = srs$support,
+                                  counts = srs$counts,
+                                  true_theta = sim$theta, nsim = 10L, seed = 3L)
+  expect_equal(unname(env$sim_srs_1$mse), unname(app_srs[[1]]$mse))
+
+  # an identity-link objective brings sigma, a first stage is pooled in
+  ci  <- list(list(name = "lin", link = "identity", p = 0))
+  spi <- owea:::.uic_specs(covs2(), ci)
+  ei  <- owea:::.uic_solver_args(spi, ci, "exact", n = 12L); ei$seed <- 1L
+  simi <- list(theta = list(c(1, 2, 3)), sigma = 2, nsim = 5L, seed = 1L,
+               existing = list(points = rbind(c(0, 0), c(1, 1)), counts = c(2L, 3L)),
+               designs = list())
+  codei <- owea:::.uic_r_code(ei, exact = TRUE, sim = simi)
+  expect_match(codei, "sigma\\s+= 2")
+  expect_match(codei, "existing\\s+= list\\(points = rbind\\(")
+  envi <- new.env(parent = globalenv())
+  invisible(capture.output(eval(parse(text = codei), envir = envi)))
+  expect_equal(envi$sim_1$n_existing, 5L)
+  expect_equal(rownames(envi$mse_1), "This design")
+})
+
+test_that("the compound results page ends with the R code section", {
+  skip_if_not_installed("shiny"); skip_if_not_installed("DT")
+  e <- app_env_c()
+  shiny::testServer(e$server, {
+    set_compound(session)
+    session$setInputs(cmp_compute = 1)
+    expect_null(cmp_computed()$error)
+    code <- output$cmp_code_txt
+    expect_match(code, "res <- compound_design\\(")
+    expect_match(code, "name\\s+= \"main\"")
+    expect_match(code, "name\\s+= \"inter\"")
+    expect_match(code, "xx\\s+= list\\(c\\(1, 2\\)\\)")
+    expect_match(code, "v <- compound_criterion\\(")
+    expect_match(code, "step\\s+= c\\(0.5, 0.5\\)")
+    expect_false(grepl("simulate_design", code))
+    # the section is rendered, with its download button
+    ui <- paste(as.character(output$cmp_code_panel$html), collapse = "\n")
+    expect_match(ui, "R code for this analysis")
+    expect_match(ui, "cmp_dl_code")
+    f <- output$cmp_dl_code
+    expect_true(file.exists(f))
+    expect_identical(paste(readLines(f), collapse = "\n"), code)
+  })
+})
+
+test_that("the compound exact design's R code grows with the simulation study", {
+  skip_if_not_installed("shiny"); skip_if_not_installed("DT")
+  e <- app_env_c()
+  shiny::testServer(e$server, {
+    set_compound(session, cmp_design_type = "exact", cmp_n = 24, cmp_seed = 1)
+    session$setInputs(cmp_compute = 1)
+    expect_null(cmp_computed()$error)
+    code <- output$cmp_code_txt
+    expect_match(code, "res <- compound_exact_design\\(")
+    expect_match(code, "seed\\s+= 1")
+    expect_false(grepl("compound_criterion|simulate_design", code))
+
+    session$setInputs(cmp_sim_open = 1,
+                      cmp_sim_theta_1_1 = 0.5, cmp_sim_theta_1_2 = 1,
+                      cmp_sim_theta_1_3 = -1,
+                      cmp_sim_theta_2_1 = 0.5, cmp_sim_theta_2_2 = 1,
+                      cmp_sim_theta_2_3 = -1, cmp_sim_theta_2_4 = 0.5,
+                      cmp_sim_nsim = 10, cmp_sim_seed = 3, cmp_sim_sigma = 1)
+    session$setInputs(cmp_run_sim = 1)
+    code2 <- output$cmp_code_txt
+    expect_match(code2, "theta_true_2 <- c\\(0.5, 1, -1, 0.5\\)")
+    expect_match(code2, "sim_1 <- simulate_design\\(")
+    expect_match(code2, "nsim\\s+= 10")
+    expect_false(grepl("srs_support", code2))     # no compared design yet
+
+    session$setInputs(cmp_run_srs = 1)
+    expect_false(inherits(rv$cmp_sim$srs, "error"))
+    expect_equal(sum(rv$cmp_sim$srs_design$counts), 24L)
+    code3 <- output$cmp_code_txt
+    expect_match(code3, "srs_support <- rbind\\(")
+    expect_match(code3, "sim_srs_2 <- simulate_design\\(")
+    expect_match(code3, "mse_2 <- rbind\\(`This design` = sim_2\\$mse, SRS = sim_srs_2\\$mse\\)")
+    # the script is valid R
+    expect_silent(parse(text = code3))
+  })
+})

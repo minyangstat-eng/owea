@@ -76,7 +76,11 @@
   for an exact design whose simulation study has been run, the script also
   repeats the study with `simulate_design()` -- the exact design and every
   design it was compared with (the simple random sample, a custom design),
-  pooled with any first stage -- and tabulates the mean squared errors.
+  pooled with any first stage -- and tabulates the mean squared errors. The
+  compound branch has the same section: the objectives as a `components`
+  list, the `compound_design()` / `compound_exact_design()` call, the
+  `compound_criterion()` scoring of an approximate design (reference values
+  reused), and the per-objective simulation study of an exact design.
 * `simulate_design()` gains `existing` and `obs`: a first stage pooled with the
   design, as the app's simulation study does for a multistage design -- an
   existing design whose responses are simulated, or an observed data set whose

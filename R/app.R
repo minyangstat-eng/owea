@@ -425,10 +425,10 @@
 # "name = expression" lines placed before / after the formatted arguments.
 .ui_fmt_call <- function(fn, args, first = character(0), raw = character(0)) {
   keep <- args[!vapply(args, is.null, logical(1))]
-  pref <- c("n", "design_box", "step_sequence", "continuous", "n_audit", "link",
-            "ncat", "f", "x", "fx", "xx", "ff", "coding", "theta", "p", "subset",
-            "xi0_points", "xi0_weights", "n0", "n1", "seed", "step", "max_points",
-            "sigma", "nsim", "existing")
+  pref <- c("n", "alpha", "efficiency", "design_box", "step_sequence", "continuous",
+            "n_audit", "link", "ncat", "f", "x", "fx", "xx", "ff", "coding", "theta",
+            "p", "subset", "xi0_points", "xi0_weights", "n0", "n1", "seed", "step",
+            "max_points", "sigma", "nsim", "existing")
   nm   <- names(keep)
   keep <- keep[c(intersect(pref, nm), setdiff(nm, pref))]
   split_nv <- function(s) list(n = trimws(sub("=.*$", "", s)),
