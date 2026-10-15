@@ -395,7 +395,7 @@
                    support = support, counts = counts,
                    existing = existing, obs = NULL,
                    nsim = nsim, seed = seed),
-      error = function(e) e)
+      error = function(e) { .rethrow_if_timeout(e); e })
   })
 }
 

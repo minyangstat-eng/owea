@@ -196,7 +196,7 @@
     ij <- tryCatch(
       .initial_support_idx(X, comps[[j]]$info_mode, data[[j]], comps[[j]]$k,
                            comps[[j]]$infor0, "minmax"),
-      error = function(e) integer(0))
+      error = function(e) { .rethrow_if_timeout(e); integer(0) })
     idx <- c(idx, ij)
   }
   idx <- unique(idx)
@@ -290,7 +290,7 @@
     args$step_sequence <- step_sequence
   }
   r <- tryCatch(suppressWarnings(do.call(optimal_design, args)),
-                error = function(e) NULL)
+                error = function(e) { .rethrow_if_timeout(e); NULL })
   if (is.null(r)) return(NULL)
   list(support = r$support, weights = r$weights,
        converged = isTRUE(r$converged), max_d = r$max_d,
@@ -533,7 +533,7 @@ compound_design <- function(components, alpha = NULL,
                                      max_iter, eps0, accept_tol)
         if (!is.null(alt)) {
           pa <- tryCatch(.cmp_eval(one, 1, alt$support, alt$weights)$psi[1],
-                         error = function(e) NA_real_)
+                         error = function(e) { .rethrow_if_timeout(e); NA_real_ })
           if (is.finite(pa) && (pa > psi_j * (1 + 1e-9) || (!conv_j && alt$converged))) {
             psi_j <- pa; ref_j <- list(support = alt$support, weights = alt$weights)
             conv_j <- alt$converged; md_j <- alt$max_d

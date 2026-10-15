@@ -1,3 +1,22 @@
+# owea 0.5.1
+
+* App: a wall-clock time limit for each computation (default 60 s). A design
+  search, optimality check, efficiency comparison, simulation study or
+  compound scoring that runs longer is stopped; the page explains that the
+  limit was exceeded, how to install the package and run the computation on
+  the user's own computer, and still ends with the "R code for this analysis"
+  section (the call the app made, plus a timed-out simulation study, whose
+  inputs are known). `run_owea_app(time_limit = )` sets the limit for a local
+  run (`Inf` removes it); a hosted copy reads `getOption("owea.app_time_limit")`
+  or the environment variable `OWEA_APP_TIME_LIMIT`. The limit is the app's
+  only: the package functions have none.
+* The C++ engine now calls `Rcpp::checkUserInterrupt()` in its exchange,
+  Newton and pruning loops, so a long solve can be interrupted (Ctrl-C /
+  Escape, or `setTimeLimit()`), and the package's internal error handlers
+  re-raise a time-limit error instead of swallowing it (R clears a limit as
+  soon as it fires, so a swallowed one would have let the computation continue
+  with no limit at all). Internal helper `.with_time_limit()` in `R/timeout.R`.
+
 # owea 0.5.0
 
 * c-optimality (one linear combination c'theta: a one-row `wb` or `grad_g`, or

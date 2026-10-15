@@ -89,14 +89,15 @@
       rj  <- (j - 1L) * p + seq_len(p); rl <- (l - 1L) * p + seq_len(p)
       H[rj, rl] <- blk; if (j != l) H[rl, rj] <- t(blk)
     }
-    step <- tryCatch(solve(H, grad), error = function(e) NULL)
+    step <- tryCatch(solve(H, grad), error = function(e) { .rethrow_if_timeout(e); NULL })
     if (is.null(step)) break
     b <- b + step
     if (max(abs(grad)) < tol) { conv <- TRUE; break }
   }
   P  <- probs(b); ll <- sum(log(pmax(P[cbind(seq_len(N), y)], 1e-12)))
   list(theta_hat = b,
-       vcov = tryCatch(solve(H), error = function(e) matrix(NA_real_, k, k)),
+       vcov = tryCatch(solve(H), error = function(e) { .rethrow_if_timeout(e)
+                                                       matrix(NA_real_, k, k) }),
        loglik = ll, converged = conv)
 }
 
@@ -122,7 +123,7 @@
   psi0 <- c(a0[1], if (J > 2L) log(pmax(diff(a0), 1e-3)) else numeric(0), rep(0, q))
   opt  <- tryCatch(stats::optim(psi0, negll, method = "BFGS",
                                 control = list(maxit = maxit)),
-                   error = function(e) NULL)
+                   error = function(e) { .rethrow_if_timeout(e); NULL })
   if (is.null(opt))
     return(list(theta_hat = rep(NA_real_, (J - 1L) + q),
                 vcov = matrix(NA_real_, (J - 1L) + q, (J - 1L) + q),
@@ -133,7 +134,8 @@
   if (isTRUE(want_vcov)) {
     info <- matrix(0, kk, kk)
     for (i in seq_len(N)) info <- info + .info_cumulative(X[i, ], theta_hat, J)
-    vcov <- tryCatch(solve(info), error = function(e) matrix(NA_real_, kk, kk))
+    vcov <- tryCatch(solve(info), error = function(e) { .rethrow_if_timeout(e)
+                                                        matrix(NA_real_, kk, kk) })
   }
   list(theta_hat = theta_hat, vcov = vcov,
        loglik = -opt$value, converged = (opt$convergence == 0L))
@@ -307,7 +309,7 @@ simulate_design <- function(support, counts = NULL, link = NULL,
   for (s in seq_len(nsim)) {
     y  <- .simulate_y(plan, Xrun, theta, sigma)
     fr <- tryCatch(.fit_model(plan, Xrun, y, sigma, want_vcov = FALSE),
-                   error = function(e) NULL)
+                   error = function(e) { .rethrow_if_timeout(e); NULL })
     if (!is.null(fr) && isTRUE(fr$converged)) { E[s, ] <- fr$theta_hat; conv[s] <- TRUE }
   }
 

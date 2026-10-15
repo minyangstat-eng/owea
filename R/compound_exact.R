@@ -200,7 +200,7 @@ compound_exact_design <- function(n, components, alpha = NULL,
     v <- tryCatch(compound_criterion_cpp(data, im, wb, i0, pp, at,
                                          as.integer(idx),
                                          as.numeric(cnt[idx] / sum(cnt))),
-                  error = function(e) NA_real_)
+                  error = function(e) { .rethrow_if_timeout(e); NA_real_ })
     if (!is.finite(v)) -Inf else v
   }
   dir_of <- function(cnt) {

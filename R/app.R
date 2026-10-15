@@ -758,7 +758,7 @@
            else if (n_old) .simulate_y(plan, Xold, theta, sigma),
            .simulate_y(plan, Xnew, theta, sigma))
     fr <- tryCatch(.fit_model(plan, X, y, sigma, want_vcov = FALSE),
-                   error = function(e) NULL)
+                   error = function(e) { .rethrow_if_timeout(e); NULL })
     if (!is.null(fr) && isTRUE(fr$converged)) { E[s, ] <- fr$theta_hat; conv[s] <- TRUE }
   }
   ok <- which(conv)
@@ -910,11 +910,19 @@
 #'
 #' @param launch.browser open the app in the system browser (default
 #'   \code{TRUE}).
+#' @param time_limit wall-clock limit, in seconds, for each computation the app
+#'   runs (the design search, an optimality check, an efficiency comparison, a
+#'   simulation study). A computation that runs longer is stopped, and the app
+#'   explains how to run it without a limit and shows the R code it would have
+#'   run. Default 60; \code{Inf} removes the limit. A hosted copy of the app
+#'   reads the same value from \code{getOption("owea.app_time_limit")} or the
+#'   environment variable \code{OWEA_APP_TIME_LIMIT}. The limit applies to the
+#'   app only, never to the package's functions.
 #' @param ... further arguments passed to \code{shiny::runApp}.
 #' @return Called for its side effect (runs the app); returns nothing useful.
 #' @seealso \code{\link{optimal_design}}, \code{\link{exact_design}}.
 #' @export
-run_owea_app <- function(launch.browser = TRUE, ...) {
+run_owea_app <- function(launch.browser = TRUE, time_limit = 60, ...) {
   need <- c("shiny", "DT")
   miss <- need[!vapply(need, requireNamespace, logical(1), quietly = TRUE)]
   if (length(miss))
@@ -924,5 +932,80 @@ run_owea_app <- function(launch.browser = TRUE, ...) {
   app_dir <- system.file("shiny", "owea-app", package = "owea")
   if (!nzchar(app_dir) || !file.exists(file.path(app_dir, "app.R")))
     stop("could not locate the bundled Shiny app; reinstall 'owea'.", call. = FALSE)
+  # app.R reads the limit from this option when it starts; NULL / NA = no limit
+  if (is.null(time_limit) || length(time_limit) != 1L || is.na(time_limit))
+    time_limit <- Inf
+  old <- options(owea.app_time_limit = time_limit)
+  on.exit(options(old), add = TRUE)
   shiny::runApp(app_dir, launch.browser = launch.browser, ...)
+}
+
+# ---- time limit (app only) -------------------------------------------------
+# The limit the app applies to each computation: the option set by
+# run_owea_app(time_limit = ), else the environment variable (how a hosted copy
+# is configured without a code change), else `default` seconds.  A missing,
+# non-numeric, non-positive or infinite value means "no limit" (Inf).
+.ui_time_limit_default <- function(default = 60) {
+  val <- getOption("owea.app_time_limit", NULL)
+  if (is.null(val)) {
+    env <- Sys.getenv("OWEA_APP_TIME_LIMIT", unset = "")
+    val <- if (nzchar(env)) suppressWarnings(as.numeric(env)) else default
+    if (length(val) != 1L || is.na(val)) val <- default
+  }
+  val <- suppressWarnings(as.numeric(val))
+  if (length(val) != 1L || is.na(val) || val <= 0) Inf else val
+}
+
+# The message shown when a computation hits the limit: plain paragraphs
+# separated by blank lines, which the app renders one <p> each.  `what` names
+# the step: the design search, or one of the steps run from the results page.
+.ui_timeout_message <- function(limit,
+                                what = c("design", "efficiency", "verify",
+                                         "simulation")) {
+  what <- match.arg(what)
+  lim <- format(limit)
+  install <- paste0(
+    "To run it on your own computer, install R (free, from ",
+    "https://cran.r-project.org) and then the owea package by typing in R: ",
+    "install.packages(\"remotes\"); remotes::install_github(\"minyangstat-eng/owea\"). ",
+    "The R code at the bottom of this page reproduces exactly what you set up here",
+    if (what == "design") "" else ", this step included",
+    ": copy it (or download it), paste it into R and run it.")
+  local_app <- paste0(
+    "You can also run this same app on your own computer without the limit, or ",
+    "with one of your choosing: owea::run_owea_app(time_limit = Inf), or for ",
+    "example owea::run_owea_app(time_limit = 600).")
+  if (what == "design") {
+    paste(
+      paste0("This computation was stopped after ", lim, " seconds. The web app ",
+             "limits every computation to ", lim, " seconds so that it stays ",
+             "responsive for everyone, and your design problem needs more time than ",
+             "that. Nothing is wrong with your setup: it will finish on your own ",
+             "computer, where there is no limit. Fine grid steps, several ",
+             "covariates, many parameters or a large random audit are the usual ",
+             "reasons."),
+      install, local_app,
+      paste0("Or make the problem smaller here: a coarser grid step (or a step ",
+             "sequence, coarse to fine), fewer covariates or fewer random audit ",
+             "points, then compute again."),
+      sep = "\n\n")
+  } else {
+    step <- switch(what, efficiency = "The efficiency computation",
+                   verify = "The optimality check",
+                   simulation = "The simulation study")
+    paste(
+      paste0(step, " was stopped after ", lim, " seconds, the limit for any ",
+             "single computation in this web app. The design above is unaffected."),
+      install, local_app,
+      paste0("To stay here, reduce the work: a coarser grid step or fewer random ",
+             "audit points for a check, or fewer replications for a simulation ",
+             "study."),
+      sep = "\n\n")
+  }
+}
+
+# Run one of the app's computations under the limit (see .with_time_limit in
+# timeout.R).  On timeout the error carries the message above.
+.ui_time_limited <- function(expr, limit, what = "design") {
+  .with_time_limit(expr, limit, .ui_timeout_message(limit, what))
 }

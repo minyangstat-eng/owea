@@ -4,11 +4,20 @@
 \alias{run_owea_app}
 \title{Launch the owea point-and-click web app.}
 \usage{
-run_owea_app(launch.browser = TRUE, ...)
+run_owea_app(launch.browser = TRUE, time_limit = 60, ...)
 }
 \arguments{
 \item{launch.browser}{open the app in the system browser (default
 \code{TRUE}).}
+
+\item{time_limit}{wall-clock limit, in seconds, for each computation the app
+runs (the design search, an optimality check, an efficiency comparison, a
+simulation study). A computation that runs longer is stopped, and the app
+explains how to run it without a limit and shows the R code it would have
+run. Default 60; \code{Inf} removes the limit. A hosted copy of the app
+reads the same value from \code{getOption("owea.app_time_limit")} or the
+environment variable \code{OWEA_APP_TIME_LIMIT}. The limit applies to the
+app only, never to the package's functions.}
 
 \item{...}{further arguments passed to \code{shiny::runApp}.}
 }

@@ -832,3 +832,62 @@ test_that(".ui_sim_ratio reports NA rather than Inf for an unusable reference", 
   expect_true(is.na(R2["SRS", "b0"]))
   expect_equal(R2["SRS", "b1"], 2)
 })
+
+# ---- the app's time limit ---------------------------------------------------
+
+test_that("the app's time limit comes from the option, then the environment, then 60", {
+  old <- options(owea.app_time_limit = NULL); on.exit(options(old), add = TRUE)
+  oldenv <- Sys.getenv("OWEA_APP_TIME_LIMIT", unset = NA)
+  on.exit(if (is.na(oldenv)) Sys.unsetenv("OWEA_APP_TIME_LIMIT")
+          else Sys.setenv(OWEA_APP_TIME_LIMIT = oldenv), add = TRUE)
+  Sys.unsetenv("OWEA_APP_TIME_LIMIT")
+  expect_equal(owea:::.ui_time_limit_default(), 60)
+  Sys.setenv(OWEA_APP_TIME_LIMIT = "12.5")         # how a hosted copy is configured
+  expect_equal(owea:::.ui_time_limit_default(), 12.5)
+  Sys.setenv(OWEA_APP_TIME_LIMIT = "Inf")
+  expect_identical(owea:::.ui_time_limit_default(), Inf)
+  Sys.setenv(OWEA_APP_TIME_LIMIT = "soon")         # junk: the default
+  expect_equal(owea:::.ui_time_limit_default(), 60)
+  Sys.setenv(OWEA_APP_TIME_LIMIT = "0")            # no limit
+  expect_identical(owea:::.ui_time_limit_default(), Inf)
+  options(owea.app_time_limit = 5)                 # run_owea_app(time_limit = ) wins
+  expect_equal(owea:::.ui_time_limit_default(), 5)
+  options(owea.app_time_limit = "7")
+  expect_equal(owea:::.ui_time_limit_default(), 7)
+  options(owea.app_time_limit = Inf)
+  expect_identical(owea:::.ui_time_limit_default(), Inf)
+  options(owea.app_time_limit = -3)
+  expect_identical(owea:::.ui_time_limit_default(), Inf)
+})
+
+test_that("the timeout message says what stopped, how to install, and how to run locally", {
+  m <- owea:::.ui_timeout_message(60, "design")
+  expect_match(m, "stopped after 60 seconds", fixed = TRUE)
+  expect_match(m, 'remotes::install_github("minyangstat-eng/owea")', fixed = TRUE)
+  expect_match(m, "run_owea_app(time_limit = Inf)", fixed = TRUE)
+  expect_match(m, "R code at the bottom of this page", fixed = TRUE)
+  expect_gte(length(strsplit(m, "\n\n", fixed = TRUE)[[1]]), 3L)   # paragraphs
+  for (w in c("efficiency", "verify", "simulation")) {
+    m2 <- owea:::.ui_timeout_message(0.5, w)
+    expect_match(m2, "stopped after 0.5 seconds", fixed = TRUE)
+    expect_match(m2, "design above is unaffected", fixed = TRUE)
+    expect_match(m2, "this step included", fixed = TRUE)
+  }
+  expect_match(owea:::.ui_timeout_message(1, "simulation"), "simulation study", fixed = TRUE)
+  expect_match(owea:::.ui_timeout_message(1, "verify"), "optimality check", fixed = TRUE)
+  expect_match(owea:::.ui_timeout_message(1, "efficiency"), "efficiency computation",
+               fixed = TRUE)
+  expect_error(owea:::.ui_timeout_message(1, "other"))
+})
+
+test_that(".ui_time_limited stops a long computation with the app's message", {
+  on.exit(setTimeLimit(cpu = Inf, elapsed = Inf, transient = FALSE), add = TRUE)
+  expect_identical(owea:::.ui_time_limited(1 + 1, Inf), 2)
+  err <- tryCatch(
+    owea:::.ui_time_limited({ s <- 0; for (i in 1:3e8) s <- s + 1; s }, 0.1, "verify"),
+    error = function(e) e)
+  expect_s3_class(err, "owea_timeout")
+  expect_match(conditionMessage(err),
+               "The optimality check was stopped after 0.1 seconds", fixed = TRUE)
+  expect_false(is.finite(owea:::.timeout_state$deadline))
+})

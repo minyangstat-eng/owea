@@ -60,7 +60,8 @@
   hs <- list()
   if (info_mode == 0L && all(infor0 == 0) &&
       requireNamespace("lpSolve", quietly = TRUE)) {
-    h_lp <- tryCatch(.c_lp(cvec, info_data), error = function(e) NULL)
+    h_lp <- tryCatch(.c_lp(cvec, info_data),
+                     error = function(e) { .rethrow_if_timeout(e); NULL })
     if (!is.null(h_lp) && all(is.finite(h_lp))) hs[[length(hs) + 1L]] <- h_lp
   }
   h0 <- cvec / sum(cvec^2)                           # h'c = 1
@@ -78,7 +79,7 @@
         sc <- max(1, abs(z0), sqrt(sum(h0^2)))
         o  <- tryCatch(stats::optimize(function(z) Dfun(h0 + Nb %*% z),
                                        c(z0 - 1e3 * sc, z0 + 1e3 * sc), tol = 1e-12),
-                       error = function(e) NULL)
+                       error = function(e) { .rethrow_if_timeout(e); NULL })
         if (!is.null(o) && is.finite(o$objective)) {
           o2 <- stats::optimize(function(z) Dfun(h0 + Nb %*% z),
                                 c(o$minimum - sc, o$minimum + sc), tol = 1e-14)
@@ -88,7 +89,7 @@
         o <- tryCatch(stats::optim(z0, function(z) Dfun(h0 + Nb %*% z),
                                    method = "Nelder-Mead",
                                    control = list(maxit = 5000L, reltol = 1e-12)),
-                      error = function(e) NULL)
+                      error = function(e) { .rethrow_if_timeout(e); NULL })
         if (!is.null(o) && is.finite(o$value))
           hs[[length(hs) + 1L]] <- as.numeric(h0 + Nb %*% o$par)
       }
@@ -125,7 +126,7 @@
   }
   o <- tryCatch(stats::optim(x0[cont], function(x1) -qf(full(x1)), gr,
                              method = "L-BFGS-B", lower = lo[cont], upper = hi[cont]),
-                error = function(e) NULL)
+                error = function(e) { .rethrow_if_timeout(e); NULL })
   q0 <- qf(x0)
   if (is.null(o) || !is.finite(o$value)) q0 else max(q0, -o$value)
 }

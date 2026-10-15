@@ -15,6 +15,19 @@ on it.
 
 ---
 
+## What's new in 0.5.1
+
+- **App: a time limit per computation** (default 60 s). A design search,
+  optimality check, efficiency comparison, simulation study or compound
+  scoring that runs longer is stopped. The page says the limit was exceeded,
+  explains how to install the package and run the computation on your own
+  computer, and still ends with the "R code for this analysis" section, so the
+  call is ready to paste into R. `run_owea_app(time_limit = )` sets the limit
+  for a local run (`Inf` removes it); a hosted copy reads the environment
+  variable `OWEA_APP_TIME_LIMIT`. The limit is the app's only: the package
+  functions have none. The C++ engine now checks for interrupts in its loops,
+  so a long solve can also be stopped with Ctrl-C / Escape.
+
 ## What's new in 0.5.0
 
 - **Grid-free search over continuous covariates** —
@@ -135,6 +148,15 @@ Highlights of the wizard:
   **<https://owea.shinyapps.io/owea-designs/>**
   Open it in any browser (phones and tablets included) — no R, no Rtools, no
   setup. This is the easiest way to try the tool or share it with collaborators.
+
+- **Time limit.** Each computation in the app is limited to 60 seconds by
+  default, so that a shared server stays responsive. A computation that runs
+  longer is stopped, the page explains how to install the package and run it
+  on your own computer, and the "R code for this analysis" section still shows
+  the call. Locally, `owea::run_owea_app(time_limit = 600)` or
+  `time_limit = Inf` changes or removes the limit; a hosted copy reads the
+  environment variable `OWEA_APP_TIME_LIMIT`. The package functions themselves
+  have no limit.
 
 ### Hosting on shinyapps.io (free)
 

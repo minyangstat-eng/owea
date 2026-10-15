@@ -41,6 +41,27 @@ CRITERIA  <- c("D-optimal (overall precision)" = "0",
 # an existing design with an approximate one.
 N_DEFAULT_EXACT <- 200
 N_DEFAULT_STAGE <- 20
+# Wall-clock limit (seconds) for each computation this app runs: the design
+# search, an optimality check, an efficiency comparison, a simulation study.
+# run_owea_app(time_limit = ) sets it for a local run; a hosted copy reads the
+# environment variable OWEA_APP_TIME_LIMIT; otherwise 60 s.  Inf = no limit.
+# The limit protects a shared server; the package itself has none.
+TIME_LIMIT <- owea:::.ui_time_limit_default()
+time_limit_note <- function() {
+  if (!is.finite(TIME_LIMIT)) return(NULL)
+  helpText(sprintf(paste(
+    "Each computation in this web app is limited to %s seconds. If yours needs",
+    "longer, the page will say so and give you the R code to run it on your own",
+    "computer, where there is no limit."), format(TIME_LIMIT)))
+}
+# the warning box shown in place of a result that hit the limit: the message's
+# paragraphs (see .ui_timeout_message), the first one with a bold lead
+timeout_alert <- function(msg) {
+  paras <- strsplit(msg, "\n\n", fixed = TRUE)[[1]]
+  div(class = "alert alert-warning",
+      tags$p(tags$b("Time limit reached. "), paras[1]),
+      lapply(paras[-1], tags$p))
+}
 
 # ---------------------------------------------------------------------------
 # UI
@@ -249,7 +270,8 @@ ui <- fluidPage(
       uiOutput("review_out"),
       br(),
       actionButton("compute", "Compute design", class = "btn-primary",
-                   width = "50%")
+                   width = "50%"),
+      time_limit_note()
     ),
 
     # ---- 8. results -------------------------------------------------------
@@ -393,7 +415,8 @@ ui <- fluidPage(
       uiOutput("cmp_review_out"),
       br(),
       actionButton("cmp_compute", "Compute design", class = "btn-primary",
-                   width = "50%")
+                   width = "50%"),
+      time_limit_note()
     ),
 
     # ---- C5. results ------------------------------------------------------
@@ -1019,40 +1042,61 @@ server <- function(input, output, session) {
     if (inherits(args, "error")) return(bad(conditionMessage(args)))
     if (is_exact()) args$seed <- as.integer(input$seed %||% 1)
 
+    # everything the results page needs besides the design itself; kept on a
+    # timeout too, so the R code section can still show the call to run locally
+    ctx <- list(cov_names = names(sp$design_box),
+                exact = is_exact(), sp = sp, theta = theta(),
+                p = as.integer(input$crit), subset = subset_idx(),
+                existing = ex, args = args, coef_names = owea:::.ui_coef_names(sp),
+                n = if (is_exact()) as.integer(n) else NA_integer_,
+                n0 = if (is.null(ex)) 0L else as.integer(ex$n0))
+
     warns <- character(0)
     # wall-clock seconds for the whole solver call, as the user experienced it
     t0 <- proc.time()[["elapsed"]]
     res <- withCallingHandlers(
       tryCatch(
         withProgress(message = "Computing the design…", value = 0.5,
-                     do.call(if (is_exact()) exact_design else optimal_design,
-                             args)),
-        error = function(e) structure(list(msg = conditionMessage(e)),
+                     # the time limit sits right around the package call: a
+                     # limit that fires inside the C++ engine arrives as an
+                     # interrupt, which must not escape the reactive
+                     owea:::.ui_time_limited(
+                       do.call(if (is_exact()) exact_design else optimal_design,
+                               args),
+                       TIME_LIMIT, "design")),
+        error = function(e) structure(list(msg = conditionMessage(e),
+                                           timeout = inherits(e, "owea_timeout")),
                                       class = "owea_bad")),
       warning = function(w) { warns <<- c(warns, conditionMessage(w))
                               invokeRestart("muffleWarning") })
     secs <- proc.time()[["elapsed"]] - t0
-    if (inherits(res, "owea_bad")) return(bad(res$msg))
-    list(res = res, warns = warns, cov_names = names(sp$design_box),
-         exact = is_exact(), sp = sp, theta = theta(),
-         p = as.integer(input$crit), subset = subset_idx(),
-         existing = ex, args = args, coef_names = owea:::.ui_coef_names(sp),
-         n = if (is_exact()) as.integer(n) else NA_integer_,
-         n0 = if (is.null(ex)) 0L else as.integer(ex$n0),
-         secs = secs)
+    if (inherits(res, "owea_bad")) {
+      if (isTRUE(res$timeout))
+        return(c(ctx, list(error = res$msg, timeout = TRUE, warns = warns,
+                           secs = secs)))
+      return(bad(res$msg))
+    }
+    c(ctx, list(res = res, warns = warns, secs = secs))
   }, ignoreInit = TRUE)
 
   # a successful compute moves the wizard on; a failure keeps the user on Review
   observeEvent(computed(), {
     c <- computed()
     if (is.null(c$error)) goto("results")
-    else showNotification(paste("Could not compute:", c$error), type = "error",
-                          duration = 10)
+    else if (isTRUE(c$timeout)) {
+      # the results page explains the limit and shows the R code to run locally
+      goto("results")
+      showNotification(sprintf(paste("Stopped: the computation exceeded the app's",
+                                     "%s-second limit. See the results page."),
+                               format(TIME_LIMIT)), type = "warning", duration = 10)
+    } else showNotification(paste("Could not compute:", c$error), type = "error",
+                            duration = 10)
   })
 
   # ---- status -------------------------------------------------------------
   output$status <- renderUI({
     c <- computed()
+    if (isTRUE(c$timeout)) return(timeout_alert(c$error))
     if (!is.null(c$error))
       return(div(class = "alert alert-danger",
                  tags$b("Could not compute: "), c$error))
@@ -1185,11 +1229,14 @@ server <- function(input, output, session) {
   # simulate_design()
   sim_code_info <- reactive({
     c <- computed(); s <- rv$sim
-    if (!isTRUE(c$exact) || is.null(s$exact) || inherits(s$exact, "error")) return(NULL)
+    # a run that hit the time limit still goes into the script: its inputs are
+    # known, and running it locally is exactly what the message suggests
+    ran <- function(r) !is.null(r) && (!inherits(r, "error") || inherits(r, "owea_timeout"))
+    if (!isTRUE(c$exact) || !ran(s$exact)) return(NULL)
     theta_true <- vapply(seq_along(c$coef_names),
       function(i) as.numeric(input[[paste0("sim_theta_", i)]] %||% 0), numeric(1))
     ex <- if (is.null(sim_obs())) c$existing else NULL
-    keep <- function(res, dsg) if (!is.null(res) && !inherits(res, "error")) dsg else NULL
+    keep <- function(res, dsg) if (ran(res)) dsg else NULL
     list(theta = theta_true,
          sigma = if (identical(c$sp$link, "identity")) as.numeric(input$sim_sigma %||% 1) else NULL,
          nsim  = as.integer(input$sim_nsim %||% 1000),
@@ -1205,8 +1252,9 @@ server <- function(input, output, session) {
   })
 
   r_code <- reactive({
-    c <- computed(); req(is.null(c$error))
-    vargs <- if (c$exact) NULL else {
+    c <- computed(); req(is.null(c$error) || isTRUE(c$timeout))
+    # after a timeout there is no design and no verify step set up: the call only
+    vargs <- if (c$exact || isTRUE(c$timeout)) NULL else {
       has_cont <- any(!owea:::.parse_design_box(c$sp$design_box)$is_factor)
       if (has_cont && verify_audit_mode()) {
         na <- verify_audit_eff()
@@ -1230,11 +1278,16 @@ server <- function(input, output, session) {
     filename = function() "owea_design.R",
     content  = function(file) writeLines(r_code(), file))
   output$code_panel <- renderUI({
-    c <- computed(); req(is.null(c$error))
+    c <- computed(); req(is.null(c$error) || isTRUE(c$timeout))
     has_sim <- !is.null(sim_code_info())
     tagList(
       hr(),
       tags$h4("R code for this analysis"),
+      if (isTRUE(c$timeout))
+        helpText("The exact call the app made before it hit the time limit. ",
+                 "Run it on your own computer, where there is no limit, to finish ",
+                 "the computation (the message above says how to install the package).")
+      else
       helpText("The exact call the app made",
                if (!c$exact) ", followed by the optimality check as set up in the verify section above (grid or random audit)",
                if (has_sim) ", followed by the simulation study as run above (with the designs it compared)",
@@ -1284,14 +1337,16 @@ server <- function(input, output, session) {
     } else NULL
     rv$eff <- withProgress(
       message = "Optimising under the other criterion…", value = 0.5,
-      tryCatch(suppressWarnings(
+      tryCatch(suppressWarnings(owea:::.ui_time_limited(
         owea:::.ui_efficiency(c$res, c$sp, c$theta, as.integer(input$eff_crit),
-                              sub, c$existing)),
+                              sub, c$existing),
+        TIME_LIMIT, "efficiency")),
         error = function(e) e))
   })
 
   output$eff_out <- renderUI({
     e <- rv$eff; if (is.null(e)) return(NULL)
+    if (inherits(e, "owea_timeout")) return(timeout_alert(conditionMessage(e)))
     if (inherits(e, "error"))
       return(div(class = "alert alert-danger", tags$b("Could not compute: "),
                  conditionMessage(e)))
@@ -1451,14 +1506,16 @@ server <- function(input, output, session) {
         if (abs(sw - 1) > 1e-6)
           warning(sprintf("Weights summed to %.6f; rescaled to sum to 1.", sw),
                   call. = FALSE)
-        do.call(verify_optimality,
-                c(list(support = dz$support, weights = w / sw,
-                       criterion_only = criterion_only),
-                  owea:::.ui_solver_args(c$sp, "verify", c$theta, c$p, c$subset,
-                                         c$existing, verify_step = st,
-                                         verify_audit = if (is.na(audit)) NULL else audit)))
+        vargs <- c(list(support = dz$support, weights = w / sw,
+                        criterion_only = criterion_only),
+                   owea:::.ui_solver_args(c$sp, "verify", c$theta, c$p, c$subset,
+                                          c$existing, verify_step = st,
+                                          verify_audit = if (is.na(audit)) NULL else audit))
+        owea:::.ui_time_limited(do.call(verify_optimality, vargs), TIME_LIMIT, "verify")
       },
-      error = function(e) structure(list(msg = conditionMessage(e)), class = "owea_bad")),
+      error = function(e) structure(list(msg = conditionMessage(e),
+                                         timeout = inherits(e, "owea_timeout")),
+                                    class = "owea_bad")),
       warning = function(w) { warns <<- c(warns, conditionMessage(w))
                               invokeRestart("muffleWarning") })
     rv$verify <- list(v = v, warns = warns, opt_crit = c$res$criterion,
@@ -1494,8 +1551,10 @@ server <- function(input, output, session) {
 
   output$verify_out <- renderUI({
     vr <- rv$verify; if (is.null(vr)) return(NULL)
-    if (inherits(vr$v, "owea_bad"))
+    if (inherits(vr$v, "owea_bad")) {
+      if (isTRUE(vr$v$timeout)) return(timeout_alert(vr$v$msg))
       return(div(class = "alert alert-danger", tags$b("Verify failed: "), vr$v$msg))
+    }
     v <- vr$v
     warn_ui <- if (length(vr$warns))
       div(class = "alert alert-warning", tags$b("Note: "),
@@ -1588,7 +1647,7 @@ server <- function(input, output, session) {
       function(i) as.numeric(input[[paste0("sim_theta_", i)]] %||% 0), numeric(1))
     sigma <- if (identical(c$sp$link, "identity"))
                as.numeric(input$sim_sigma %||% 1) else 1
-    owea:::.ui_simulate(
+    owea:::.ui_time_limited(owea:::.ui_simulate(
       c$sp, theta = theta_true, sigma = sigma,
       support = support, counts = counts,
       # an OBSERVED first stage keeps its real responses; a design-only first
@@ -1596,7 +1655,8 @@ server <- function(input, output, session) {
       obs      = sim_obs(),
       existing = if (is.null(sim_obs())) c$existing else NULL,
       nsim = as.integer(input$sim_nsim %||% 1000),
-      seed = as.integer(input$sim_seed %||% 1))
+      seed = as.integer(input$sim_seed %||% 1)),
+      TIME_LIMIT, "simulation")
   }
 
   # the observed first stage, when the data set's covariates ARE the existing
@@ -1727,13 +1787,17 @@ server <- function(input, output, session) {
   })
 
   output$sim_msg <- renderUI({
-    s <- rv$sim; msgs <- character(0)
+    s <- rv$sim; msgs <- character(0); tmo <- NULL
     for (nm in c("exact", "srs", "custom"))
-      if (inherits(s[[nm]], "error"))
+      if (inherits(s[[nm]], "owea_timeout")) {
+        msgs <- c(msgs, sprintf("%s: stopped at the time limit (see below).", nm))
+        tmo <- s[[nm]]
+      } else if (inherits(s[[nm]], "error"))
         msgs <- c(msgs, sprintf("%s: %s", nm, conditionMessage(s[[nm]])))
     if (!is.null(s$pool_warn)) msgs <- c(msgs, s$pool_warn)
     if (!length(msgs)) return(NULL)
-    div(class = "alert alert-warning", lapply(msgs, tags$div))
+    tagList(div(class = "alert alert-warning", lapply(msgs, tags$div)),
+            if (!is.null(tmo)) timeout_alert(conditionMessage(tmo)))
   })
 
   # =======================================================================
@@ -2105,6 +2169,12 @@ server <- function(input, output, session) {
       reused <- TRUE
     }
 
+    # kept on a timeout too, so the R code section can show the call to run locally
+    ctx <- list(specs = sp, comps = cm, exact = exact,
+                n = if (exact) as.integer(nn) else NA_integer_,
+                cov_names = names(sp[[1]]$design_box), existing = ex, args = args,
+                psi_reused = reused)
+
     warns <- character(0)
     # wall-clock seconds for the whole solver call (reference solves included
     # unless they were reused), as the user experienced it
@@ -2112,34 +2182,46 @@ server <- function(input, output, session) {
     res <- withCallingHandlers(
       tryCatch(withProgress(message = "Computing the compound design…",
                             value = 0.5,
-                            do.call(if (exact) compound_exact_design
-                                    else compound_design, args)),
-               error = function(e) structure(list(msg = conditionMessage(e)),
+                            owea:::.ui_time_limited(
+                              do.call(if (exact) compound_exact_design
+                                      else compound_design, args),
+                              TIME_LIMIT, "design")),
+               error = function(e) structure(list(msg = conditionMessage(e),
+                                                  timeout = inherits(e, "owea_timeout")),
                                              class = "owea_bad")),
       warning = function(w) {
         warns <<- c(warns, conditionMessage(w)); invokeRestart("muffleWarning")
       })
     secs <- proc.time()[["elapsed"]] - t0
-    if (inherits(res, "owea_bad")) return(bad(res$msg))
+    if (inherits(res, "owea_bad")) {
+      if (isTRUE(res$timeout))               # nothing is cached from a stopped run
+        return(c(ctx, list(error = res$msg, timeout = TRUE, warns = warns,
+                           secs = secs)))
+      return(bad(res$msg))
+    }
     ps <- suppressWarnings(as.numeric(res$psi_star))
     if (isTRUE(args$efficiency) && length(ps) && all(is.finite(ps)) && all(ps > 0))
       cmp_psi_cache <<- list(key = key, psi_star = ps,
                              reference_bound = suppressWarnings(as.numeric(res$reference_bound)))
-    list(res = res, warns = warns, specs = sp, comps = cm, exact = exact,
-         n = if (exact) as.integer(nn) else NA_integer_,
-         cov_names = names(sp[[1]]$design_box), existing = ex, args = args,
-         psi_reused = reused, secs = secs)
+    c(ctx, list(res = res, warns = warns, secs = secs))
   }, ignoreInit = TRUE)
 
   observeEvent(cmp_computed(), {
     c2 <- cmp_computed()
     if (is.null(c2$error)) goto("cmp_results")
-    else showNotification(c2$error, type = "error", duration = 10)
+    else if (isTRUE(c2$timeout)) {
+      # the results page explains the limit and shows the R code to run locally
+      goto("cmp_results")
+      showNotification(sprintf(paste("Stopped: the computation exceeded the app's",
+                                     "%s-second limit. See the results page."),
+                               format(TIME_LIMIT)), type = "warning", duration = 10)
+    } else showNotification(c2$error, type = "error", duration = 10)
   })
 
   # ---- C5. results ---------------------------------------------------------
   output$cmp_status <- renderUI({
     c2 <- cmp_computed()
+    if (isTRUE(c2$timeout)) return(timeout_alert(c2$error))
     if (!is.null(c2$error))
       return(div(class = "alert alert-danger", tags$b("Could not compute. "),
                  c2$error))
@@ -2269,7 +2351,8 @@ server <- function(input, output, session) {
       grDevices::png(file, width = 900, height = 650, res = 110)
       on.exit(grDevices::dev.off())
       c2 <- cmp_computed()
-      plot_design(c2$res, cov_names = c2$cov_names, main = "Compound design")
+      if (is.null(c2$error))
+        plot_design(c2$res, cov_names = c2$cov_names, main = "Compound design")
     })
 
   output$cmp_info_pick <- renderUI({
@@ -2335,9 +2418,11 @@ server <- function(input, output, session) {
         psi_star = if (isTRUE(c2$res$efficiency_weighted)) c2$res$psi_star else NULL,
         reference_bound = if (isTRUE(c2$res$efficiency_weighted)) c2$res$reference_bound else NULL)
       withProgress(message = "Scoring the design…", value = 0.5,
-        do.call(compound_criterion,
-                c(list(support = d$support, weights = w,
-                       criterion_only = isTRUE(criterion_only)), args)))
+        owea:::.ui_time_limited(
+          do.call(compound_criterion,
+                  c(list(support = d$support, weights = w,
+                         criterion_only = isTRUE(criterion_only)), args)),
+          TIME_LIMIT, "verify"))
     }, error = function(e) e)
     rv$cmp_verify <- out
   }
@@ -2367,6 +2452,7 @@ server <- function(input, output, session) {
   output$cmp_verify_out <- renderUI({
     v <- rv$cmp_verify
     if (is.null(v)) return(NULL)
+    if (inherits(v, "owea_timeout")) return(timeout_alert(conditionMessage(v)))
     if (inherits(v, "error"))
       return(div(class = "alert alert-danger", conditionMessage(v)))
     c2 <- cmp_computed()
@@ -2479,12 +2565,14 @@ server <- function(input, output, session) {
   cmp_sim_run <- function(support, counts) {
     c2 <- cmp_computed()
     withProgress(message = "Simulating…", value = 0.5,
-      owea:::.uic_simulate(c2$specs, c2$comps, support = support,
-                           counts = counts, true_theta = cmp_sim_theta(),
-                           sigma = as.numeric(input$cmp_sim_sigma %||% 1),
-                           existing = c2$existing,
-                           nsim = as.integer(input$cmp_sim_nsim %||% 500),
-                           seed = as.integer(input$cmp_sim_seed %||% 1)))
+      owea:::.ui_time_limited(
+        owea:::.uic_simulate(c2$specs, c2$comps, support = support,
+                             counts = counts, true_theta = cmp_sim_theta(),
+                             sigma = as.numeric(input$cmp_sim_sigma %||% 1),
+                             existing = c2$existing,
+                             nsim = as.integer(input$cmp_sim_nsim %||% 500),
+                             seed = as.integer(input$cmp_sim_seed %||% 1)),
+        TIME_LIMIT, "simulation"))
   }
 
   observeEvent(input$cmp_run_sim, {
@@ -2514,9 +2602,11 @@ server <- function(input, output, session) {
   # design whose simulation study has been run, that study
   cmp_sim_code_info <- reactive({
     c2 <- cmp_computed(); s <- rv$cmp_sim; dd <- rv$cmp_sim_designs
-    if (!isTRUE(c2$exact) || is.null(s$design) || inherits(s$design, "error")) return(NULL)
+    # a run stopped by the time limit still goes into the script (inputs known)
+    ran <- function(r) !is.null(r) && (!inherits(r, "error") || inherits(r, "owea_timeout"))
+    if (!isTRUE(c2$exact) || !ran(s$design)) return(NULL)
     ex <- c2$existing
-    keep <- function(res, dsg) if (!is.null(res) && !inherits(res, "error")) dsg else NULL
+    keep <- function(res, dsg) if (ran(res)) dsg else NULL
     any_identity <- any(vapply(c2$specs, function(sp) identical(sp$link, "identity"), logical(1)))
     list(theta = cmp_sim_theta(),
          sigma = if (any_identity) as.numeric(input$cmp_sim_sigma %||% 1) else NULL,
@@ -2531,8 +2621,9 @@ server <- function(input, output, session) {
                                Custom = keep(s$custom, dd$custom))))
   })
   cmp_r_code <- reactive({
-    c2 <- cmp_computed(); req(is.null(c2$error))
-    vargs <- if (c2$exact) NULL else
+    c2 <- cmp_computed(); req(is.null(c2$error) || isTRUE(c2$timeout))
+    # after a timeout there is no design to score: the call only
+    vargs <- if (c2$exact || isTRUE(c2$timeout)) NULL else
       tryCatch(owea:::.uic_solver_args(
         c2$specs, c2$comps, "verify", alpha = cmp_alpha(),
         efficiency = isTRUE(c2$res$efficiency_weighted), existing = c2$existing),
@@ -2545,11 +2636,16 @@ server <- function(input, output, session) {
     filename = function() "owea_compound_design.R",
     content  = function(file) writeLines(cmp_r_code(), file))
   output$cmp_code_panel <- renderUI({
-    c2 <- cmp_computed(); req(is.null(c2$error))
+    c2 <- cmp_computed(); req(is.null(c2$error) || isTRUE(c2$timeout))
     has_sim <- !is.null(cmp_sim_code_info())
     tagList(
       hr(),
       tags$h4("R code for this analysis"),
+      if (isTRUE(c2$timeout))
+        helpText("The exact call the app made before it hit the time limit. ",
+                 "Run it on your own computer, where there is no limit, to finish ",
+                 "the computation (the message above says how to install the package).")
+      else
       helpText("The exact call the app made",
                if (!c2$exact) ", followed by the scoring of the design under the same compound criterion",
                if (has_sim) ", followed by the simulation study as run above (with the designs it compared)",
@@ -2689,9 +2785,13 @@ server <- function(input, output, session) {
     c2 <- cmp_computed()
     nms <- vapply(c2$comps, function(z) z$name, character(1))
     msgs <- character(0)
+    tmo <- NULL
     for (slot in names(s)) {
       v <- s[[slot]]
-      if (inherits(v, "error")) {
+      if (inherits(v, "owea_timeout")) {
+        msgs <- c(msgs, sprintf("%s: stopped at the time limit (see below).", slot))
+        tmo <- v
+      } else if (inherits(v, "error")) {
         msgs <- c(msgs, sprintf("%s: %s", slot, conditionMessage(v)))
       } else if (is.list(v)) {
         for (j in seq_along(v))
@@ -2701,7 +2801,8 @@ server <- function(input, output, session) {
       }
     }
     if (!length(msgs)) return(NULL)
-    div(class = "alert alert-warning", lapply(msgs, tags$div))
+    tagList(div(class = "alert alert-warning", lapply(msgs, tags$div)),
+            if (!is.null(tmo)) timeout_alert(conditionMessage(tmo)))
   })
 }
 

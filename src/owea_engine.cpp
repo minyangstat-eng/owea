@@ -245,6 +245,7 @@ static void new_weight1_core(int pp, const std::vector<mat>& pinfo,
     const double wtol    = 1e-12;                   // weights below this are "at the bound"
     const double max_rep = (mode == 0) ? 40.0 : 100.0;
     while (w_diff > 1e-6 && indic > 0.5 && repli < max_rep) {
+        Rcpp::checkUserInterrupt();   // lets setTimeLimit() / Ctrl-C stop a long solve
         mat infor = (r_weight - accu(weight)) * last_infor;
         for (int i = 0; i < n - 1; ++i) infor += weight(i) * infor_blk[i];
 
@@ -407,6 +408,7 @@ static void new_weight2(int pp, std::vector<int> ind, const mat& infor0,
         new_weight1_core(pp, pinfo, infor0, w0, wb, 1.0, weight, stop);
 
         while ((int) ind.size() > 1 && weight.min() < 1e-6) {
+            Rcpp::checkUserInterrupt();   // lets setTimeLimit() / Ctrl-C stop a long solve
             if ((int) ind.size() <= min_support) break;
             uword imin = weight.index_min();
             ind.erase(ind.begin() + imin);
@@ -424,6 +426,7 @@ static void new_weight2(int pp, std::vector<int> ind, const mat& infor0,
 
         while ((int) ind.size() > 1 && (int) ind.size() > min_support &&
                weight.min() < 1e-6) {
+            Rcpp::checkUserInterrupt();   // lets setTimeLimit() / Ctrl-C stop a long solve
             int n = (int) ind.size();
             vec wn = clamp(weight, 0.0, datum::inf); wn /= accu(wn);
             // directional derivatives of the support points at the current design
@@ -697,6 +700,7 @@ List appro_opt_cpp(int pp, const arma::mat& wb, int info_mode,
     int iter = 1;
     // ---- 3-4. add the best point(s), re-optimise, until d_p <= tol --
     while (sen > tol && iter < max_iter) {
+        Rcpp::checkUserInterrupt();   // lets setTimeLimit() / Ctrl-C stop a long solve
         std::vector<int> newx = cidx;
         int n_add = 1;
         if (mode == 1 && add_per_iter > 1)

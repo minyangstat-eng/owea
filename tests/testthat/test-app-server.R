@@ -494,3 +494,71 @@ test_that("the computation-time line formats seconds readably", {
   expect_match(html, "3.50 seconds", fixed = TRUE)
   expect_match(html, "optimal design", fixed = TRUE)
 })
+
+# ---- the time limit ---------------------------------------------------------
+# The server reads TIME_LIMIT (a constant of app.R) when it computes, so a test
+# can lower it in the app's environment `e` before or between computations.
+
+test_that("a computation past the time limit stops, explains, and still shows the R code", {
+  skip_if_not_installed("shiny"); skip_if_not_installed("DT")
+  e <- app_env()
+  e$TIME_LIMIT <- 0.01
+  shiny::testServer(e$server, {
+    set_model(session, link = "identity", start = "none", cov_step_1 = "0.0001")
+    session$setInputs(compute = 1)
+    cc <- computed()
+    expect_true(isTRUE(cc$timeout))
+    expect_match(cc$error, "stopped after 0.01 seconds", fixed = TRUE)
+    expect_match(cc$error, "install_github", fixed = TRUE)
+    expect_null(cc$res)
+    expect_false(is.null(cc$args))              # the call survives the timeout
+    expect_equal(cur(), "results")               # ... and the user lands on results
+    status <- paste(as.character(output$status$html), collapse = "\n")
+    expect_match(status, "Time limit reached", fixed = TRUE)
+    expect_match(status, "alert-warning", fixed = TRUE)
+    code <- output$code_txt
+    expect_match(code, "res <- optimal_design(", fixed = TRUE)
+    expect_false(grepl("verify_optimality", code))   # no check was set up
+    expect_silent(parse(text = code))
+    panel <- paste(as.character(output$code_panel$html), collapse = "\n")
+    expect_match(panel, "before it hit the time limit", fixed = TRUE)
+    expect_match(panel, "dl_code", fixed = TRUE)
+    # the limit is disarmed, and a cheaper problem computes normally afterwards
+    expect_false(is.finite(owea:::.timeout_state$deadline))
+    e$TIME_LIMIT <- 60
+    session$setInputs(cov_step_1 = "0.5", compute = 2)
+    expect_null(computed()$error)
+    expect_null(computed()$timeout)
+    expect_match(output$code_txt, "verify_optimality(", fixed = TRUE)
+  })
+})
+
+test_that("a simulation study past the time limit is reported and stays in the R code", {
+  skip_if_not_installed("shiny"); skip_if_not_installed("DT")
+  e <- app_env()
+  shiny::testServer(e$server, {
+    set_model(session, link = "identity", start = "none", design_type = "exact",
+              n_new = 10, seed = 1)
+    session$setInputs(compute = 1)
+    expect_null(computed()$error)
+    e$TIME_LIMIT <- 0.01
+    session$setInputs(sim_open = 1, sim_theta_1 = 1, sim_theta_2 = 2,
+                      sim_sigma = 1, sim_nsim = 20000, sim_seed = 1)
+    session$setInputs(run_sim = 1)
+    expect_s3_class(rv$sim$exact, "owea_timeout")
+    msg <- paste(as.character(output$sim_msg$html), collapse = "\n")
+    expect_match(msg, "stopped at the time limit", fixed = TRUE)
+    expect_match(msg, "Time limit reached", fixed = TRUE)
+    expect_match(msg, "simulation study", fixed = TRUE)
+    # the script still ends with the simulation study as set up
+    code <- output$code_txt
+    expect_match(code, "simulate_design(", fixed = TRUE)
+    expect_match(code, "nsim\\s+= 20000")
+    expect_silent(parse(text = code))
+    # a compared design whose run timed out keeps its design in the script too
+    session$setInputs(run_srs = 1)
+    expect_s3_class(rv$sim$srs, "owea_timeout")
+    expect_match(output$code_txt, "srs", ignore.case = TRUE)
+    expect_false(is.finite(owea:::.timeout_state$deadline))
+  })
+})

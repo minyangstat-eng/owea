@@ -344,6 +344,7 @@ static void cmp_weights_core(const std::vector<CmpComp>& C,
     double gnorm = datum::inf;
 
     for (int it = 0; it < 200; ++it) {
+        Rcpp::checkUserInterrupt();   // lets setTimeLimit() / Ctrl-C stop a long solve
         cmp_grad_hess(C, St, D, g, H);
         gnorm = norm(g);
         if (gnorm < 1e-12) break;
@@ -423,6 +424,7 @@ static void cmp_weights2(const std::vector<CmpComp>& C,
         cmp_weights_core(C, pinfo, w0, 1.0, weight, stop);
 
         while (ind.size() > 1 && weight.min() < 1e-6) {
+            Rcpp::checkUserInterrupt();   // lets setTimeLimit() / Ctrl-C stop a long solve
             if ((int) ind.size() <= min_support) break;
             uword imin = weight.index_min();
             // Never prune into a SINGULAR information matrix.  With a singular
@@ -664,6 +666,7 @@ List compound_appro_opt_cpp(List info_data, IntegerVector info_mode, List wb,
     int iter = 1;
     // ---- 3-4. add the best point, re-optimise, until psi <= tol ------
     while (sen > tol && iter < max_iter) {
+        Rcpp::checkUserInterrupt();   // lets setTimeLimit() / Ctrl-C stop a long solve
         std::vector<int> newx = cidx;
         vec new_w0;
         bool present = std::find(cidx.begin(), cidx.end(), vidx) != cidx.end();

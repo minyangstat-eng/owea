@@ -45,11 +45,12 @@
 # spd_inv() of owea_engine.cpp).
 .cont_inv <- function(A) {
   A <- 0.5 * (A + t(A))
-  R <- tryCatch(chol2inv(chol(A)), error = function(e) NULL)
+  R <- tryCatch(chol2inv(chol(A)), error = function(e) { .rethrow_if_timeout(e); NULL })
   if (!is.null(R)) return(R)
   n <- nrow(A); reg <- 1e-12 * max(1, sum(diag(A)) / n)
   for (t in 1:12) {
-    R <- tryCatch(chol2inv(chol(A + reg * diag(n))), error = function(e) NULL)
+    R <- tryCatch(chol2inv(chol(A + reg * diag(n))),
+                  error = function(e) { .rethrow_if_timeout(e); NULL })
     if (!is.null(R)) return(R)
     reg <- reg * 10
   }
@@ -111,7 +112,8 @@
     if (nrow(X) == 0L) return(matrix(0, len, 0L))
     out <- NULL
     if (is.function(fn_vec)) {
-      out <- tryCatch(as.matrix(fn_vec(X, theta)), error = function(e) NULL)
+      out <- tryCatch(as.matrix(fn_vec(X, theta)),
+                      error = function(e) { .rethrow_if_timeout(e); NULL })
       if (!is.null(out) && !identical(dim(out), c(len, nrow(X)))) out <- NULL
     }
     if (is.null(out))
@@ -234,7 +236,7 @@
   f0 <- fn(par0)
   o  <- tryCatch(stats::optim(par0, fn, gr, method = "L-BFGS-B", lower = lower,
                               upper = upper, control = list(factr = 1e3, maxit = 200L)),
-                 error = function(e) NULL)
+                 error = function(e) { .rethrow_if_timeout(e); NULL })
   if (is.null(o) || !is.finite(o$value) || o$value > f0) return(X)
   put(pmin(pmax(o$par, lower), upper))
 }
@@ -280,7 +282,7 @@
   x1 <- x_start[cont]
   o  <- tryCatch(stats::optim(x1, fn, gr, method = "L-BFGS-B", lower = lo[cont],
                               upper = hi[cont]),
-                 error = function(e) NULL)
+                 error = function(e) { .rethrow_if_timeout(e); NULL })
   if (is.null(o) || !is.finite(o$value)) return(list(x = x_start, d = dval(x_start)))
   x <- full(pmin(pmax(o$par, lo[cont]), hi[cont]))
   list(x = x, d = -o$value)

@@ -815,3 +815,63 @@ test_that("the compound exact design's R code grows with the simulation study", 
     expect_silent(parse(text = code4))
   })
 })
+
+# ---- the time limit ---------------------------------------------------------
+
+test_that("a compound computation past the time limit stops and keeps the R code", {
+  skip_if_not_installed("shiny"); skip_if_not_installed("DT")
+  e <- app_env_c()
+  e$TIME_LIMIT <- 0.01
+  shiny::testServer(e$server, {
+    set_compound(session, ccov_step_1 = "0.01", ccov_step_2 = "0.01")   # 401^2 points
+    session$setInputs(cmp_compute = 1)
+    c2 <- cmp_computed()
+    expect_true(isTRUE(c2$timeout))
+    expect_match(c2$error, "stopped after 0.01 seconds", fixed = TRUE)
+    expect_null(c2$res)
+    expect_equal(cur(), "cmp_results")
+    status <- paste(as.character(output$cmp_status$html), collapse = "\n")
+    expect_match(status, "Time limit reached", fixed = TRUE)
+    code <- output$cmp_code_txt
+    expect_match(code, "res <- compound_design\\(")
+    expect_false(grepl("compound_criterion", code))     # nothing to score
+    expect_silent(parse(text = code))
+    panel <- paste(as.character(output$cmp_code_panel$html), collapse = "\n")
+    expect_match(panel, "before it hit the time limit", fixed = TRUE)
+    expect_null(cmp_psi_cache)                           # nothing cached from a stopped run
+    expect_false(is.finite(owea:::.timeout_state$deadline))
+    # a cheaper problem computes normally afterwards
+    e$TIME_LIMIT <- 60
+    set_compound(session, ccov_step_1 = "0.5", ccov_step_2 = "0.5")
+    session$setInputs(cmp_compute = 2)
+    expect_null(cmp_computed()$error)
+    expect_match(output$cmp_code_txt, "v <- compound_criterion\\(")
+  })
+})
+
+test_that("a compound simulation study past the time limit is reported and kept in the code", {
+  skip_if_not_installed("shiny"); skip_if_not_installed("DT")
+  e <- app_env_c()
+  shiny::testServer(e$server, {
+    set_compound(session, cmp_design_type = "exact", cmp_n = 24, cmp_seed = 1)
+    session$setInputs(cmp_compute = 1)
+    expect_null(cmp_computed()$error)
+    e$TIME_LIMIT <- 0.01
+    session$setInputs(cmp_sim_open = 1,
+                      cmp_sim_theta_1_1 = 0.5, cmp_sim_theta_1_2 = 1,
+                      cmp_sim_theta_1_3 = -1,
+                      cmp_sim_theta_2_1 = 0.5, cmp_sim_theta_2_2 = 1,
+                      cmp_sim_theta_2_3 = -1, cmp_sim_theta_2_4 = 0.5,
+                      cmp_sim_nsim = 20000, cmp_sim_seed = 3, cmp_sim_sigma = 1)
+    session$setInputs(cmp_run_sim = 1)
+    expect_s3_class(rv$cmp_sim$design, "owea_timeout")
+    msg <- paste(as.character(output$cmp_sim_msg$html), collapse = "\n")
+    expect_match(msg, "stopped at the time limit", fixed = TRUE)
+    expect_match(msg, "Time limit reached", fixed = TRUE)
+    code <- output$cmp_code_txt
+    expect_match(code, "sim_1 <- simulate_design\\(")
+    expect_match(code, "nsim\\s+= 20000")
+    expect_silent(parse(text = code))
+    expect_false(is.finite(owea:::.timeout_state$deadline))
+  })
+})

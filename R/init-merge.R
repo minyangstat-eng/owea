@@ -63,7 +63,7 @@
     # M = infor0 + sum_i w_i A_i   (info_data columns are already b-scaled)
     if (info_mode == 0L) M <- infor0 + info_data %*% (t(info_data) * w)
     else { M <- infor0 + matrix(info_data %*% w, k, k); M <- 0.5 * (M + t(M)) }
-    Mi <- tryCatch(solve(M), error = function(e) NULL)
+    Mi <- tryCatch(solve(M), error = function(e) { .rethrow_if_timeout(e); NULL })
     if (is.null(Mi)) { singular <- TRUE; break }
     # criterion gradient C = phi'(M); sensitivity d_i = tr(C A_i)
     if (full_D) {
@@ -71,7 +71,8 @@
     } else {
       WMi <- wb %*% Mi                          # v x k = wb M^-1
       if (pp == 0L) {
-        Si <- tryCatch(solve(WMi %*% t(wb)), error = function(e) NULL)  # (wb M^-1 wb')^-1
+        Si <- tryCatch(solve(WMi %*% t(wb)),                        # (wb M^-1 wb')^-1
+                       error = function(e) { .rethrow_if_timeout(e); NULL })
         if (is.null(Si)) { singular <- TRUE; break }
         C <- crossprod(WMi, Si %*% WMi)         # k x k
       } else {
