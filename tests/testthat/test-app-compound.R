@@ -505,6 +505,9 @@ test_that("the app reuses Psi* when only the weights change", {
     # same objectives, different weights: the reference solves are skipped and
     # the SAME Psi* is used, so the efficiencies stay on the same scale
     expect_false(grepl("were reused", output$cmp_status$html, fixed = TRUE))
+    # ... and reports the computation time next to the efficiency
+    expect_true(is.finite(c1$secs) && c1$secs >= 0)
+    expect_true(grepl("Computation time:", output$cmp_status$html, fixed = TRUE))
 
     session$setInputs(cmp_alpha_1 = 0.9, cmp_alpha_2 = 0.1, cmp_compute = 2)
     c2 <- cmp_computed()

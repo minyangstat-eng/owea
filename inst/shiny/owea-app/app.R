@@ -1020,6 +1020,8 @@ server <- function(input, output, session) {
     if (is_exact()) args$seed <- as.integer(input$seed %||% 1)
 
     warns <- character(0)
+    # wall-clock seconds for the whole solver call, as the user experienced it
+    t0 <- proc.time()[["elapsed"]]
     res <- withCallingHandlers(
       tryCatch(
         withProgress(message = "Computing the design…", value = 0.5,
@@ -1029,13 +1031,15 @@ server <- function(input, output, session) {
                                       class = "owea_bad")),
       warning = function(w) { warns <<- c(warns, conditionMessage(w))
                               invokeRestart("muffleWarning") })
+    secs <- proc.time()[["elapsed"]] - t0
     if (inherits(res, "owea_bad")) return(bad(res$msg))
     list(res = res, warns = warns, cov_names = names(sp$design_box),
          exact = is_exact(), sp = sp, theta = theta(),
          p = as.integer(input$crit), subset = subset_idx(),
          existing = ex, args = args, coef_names = owea:::.ui_coef_names(sp),
          n = if (is_exact()) as.integer(n) else NA_integer_,
-         n0 = if (is.null(ex)) 0L else as.integer(ex$n0))
+         n0 = if (is.null(ex)) 0L else as.integer(ex$n0),
+         secs = secs)
   }, ignoreInit = TRUE)
 
   # a successful compute moves the wizard on; a failure keeps the user on Review
@@ -1082,8 +1086,9 @@ server <- function(input, output, session) {
         "when convergence was not reached)."), 100 * eb,
         if (cont) "the points examined by the search and the audit"
         else "the searched grid")))
+    time_ui <- .time_line(c$secs, if (c$exact) "exact design" else "optimal design")
     div(class = if (conv) "alert alert-success" else "alert alert-warning",
-        tags$b(msg), cert, extra)
+        tags$b(msg), cert, time_ui, extra)
   })
 
   # ---- design table -------------------------------------------------------
@@ -2101,6 +2106,9 @@ server <- function(input, output, session) {
     }
 
     warns <- character(0)
+    # wall-clock seconds for the whole solver call (reference solves included
+    # unless they were reused), as the user experienced it
+    t0 <- proc.time()[["elapsed"]]
     res <- withCallingHandlers(
       tryCatch(withProgress(message = "Computing the compound design…",
                             value = 0.5,
@@ -2111,6 +2119,7 @@ server <- function(input, output, session) {
       warning = function(w) {
         warns <<- c(warns, conditionMessage(w)); invokeRestart("muffleWarning")
       })
+    secs <- proc.time()[["elapsed"]] - t0
     if (inherits(res, "owea_bad")) return(bad(res$msg))
     ps <- suppressWarnings(as.numeric(res$psi_star))
     if (isTRUE(args$efficiency) && length(ps) && all(is.finite(ps)) && all(ps > 0))
@@ -2119,7 +2128,7 @@ server <- function(input, output, session) {
     list(res = res, warns = warns, specs = sp, comps = cm, exact = exact,
          n = if (exact) as.integer(nn) else NA_integer_,
          cov_names = names(sp[[1]]$design_box), existing = ex, args = args,
-         psi_reused = reused)
+         psi_reused = reused, secs = secs)
   }, ignoreInit = TRUE)
 
   observeEvent(cmp_computed(), {
@@ -2150,6 +2159,7 @@ server <- function(input, output, session) {
                   "Weighted average efficiency" else "Weighted criterion",
                 r$criterion, r$criterion_approx, 100 * r$efficiency_exact_lower_bound,
                 r$exchanges),
+        .time_line(c2$secs, "exact compound design"),
         if (length(c2$warns))
           tags$ul(lapply(unique(c2$warns),
                          function(w) tags$li(.friendly_warn(w)))),
@@ -2174,6 +2184,7 @@ server <- function(input, output, session) {
     div(class = if (ok) "alert alert-success" else "alert alert-warning",
         tags$b(if (ok) "Compound design found. " else "Did not converge. "),
         val_ui,
+        .time_line(c2$secs, "compound design"),
         if (length(c2$warns))
           tags$ul(lapply(unique(c2$warns), function(w) tags$li(.friendly_warn(w)))),
         reuse)
@@ -2696,6 +2707,22 @@ server <- function(input, output, session) {
 
 # small helpers ------------------------------------------------------------
 `%||%` <- function(a, b) if (is.null(a) || (length(a) == 1 && is.na(a))) b else a
+
+# elapsed seconds -> "0.42 seconds", "12.3 seconds", "2 min 05 s"
+.fmt_secs <- function(secs) {
+  if (is.null(secs) || !is.finite(secs)) return(NA_character_)
+  if (secs < 10)   sprintf("%.2f seconds", secs)
+  else if (secs < 60) sprintf("%.1f seconds", secs)
+  else sprintf("%d min %02d s", as.integer(secs %/% 60), as.integer(round(secs %% 60)))
+}
+
+# the "Computation time" line of a results status box (NULL if unknown)
+.time_line <- function(secs, what = "design") {
+  s <- .fmt_secs(secs)
+  if (is.na(s)) return(NULL)
+  tags$p(tags$small(tags$b("Computation time: "), s,
+                    sprintf(" (wall-clock time to derive the %s on this server).", what)))
+}
 
 # a design data.frame -> CSV text (to prefill / display), full precision.
 design_csv_text <- function(df) {

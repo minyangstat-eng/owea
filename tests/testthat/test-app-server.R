@@ -373,6 +373,10 @@ test_that("the continuous search flows through the app to the solver", {
     expect_true(cc$res$converged)
     expect_match(output$status$html, "continuous search", fixed = TRUE)
     expect_match(output$status$html, "Verify it below", fixed = TRUE)
+    # the status box reports how long the solve took, next to the efficiency
+    expect_true(is.finite(cc$secs) && cc$secs >= 0)
+    expect_match(output$status$html, "Computation time:", fixed = TRUE)
+    expect_match(output$status$html, "seconds|min", perl = TRUE)
     # the R code behind the result reproduces the call
     code <- output$code_txt
     expect_match(code, "res <- optimal_design(", fixed = TRUE)
@@ -474,4 +478,19 @@ test_that("drawing theta from N(0,1) keeps the ordinal thresholds increasing", {
     expect_length(th, 4L)                          # echoed back into input
     expect_true(all(diff(th[1:3]) > 0))
   })
+})
+
+test_that("the computation-time line formats seconds readably", {
+  skip_if_not_installed("shiny")
+  e <- app_env()
+  expect_identical(e$.fmt_secs(0.4213), "0.42 seconds")
+  expect_identical(e$.fmt_secs(12.34), "12.3 seconds")
+  expect_identical(e$.fmt_secs(125), "2 min 05 s")
+  expect_true(is.na(e$.fmt_secs(NULL)))
+  expect_true(is.na(e$.fmt_secs(NA_real_)))
+  expect_null(e$.time_line(NULL))
+  html <- as.character(e$.time_line(3.5, "optimal design"))
+  expect_match(html, "Computation time:", fixed = TRUE)
+  expect_match(html, "3.50 seconds", fixed = TRUE)
+  expect_match(html, "optimal design", fixed = TRUE)
 })
