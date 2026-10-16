@@ -47,13 +47,7 @@ Useful links:
 
 }
 \author{
-\strong{Maintainer}: Elvis Tang \email{alex.tang.yang@gmail.com}
-
-Authors:
-\itemize{
-  \item Min Yang
-  \item Stefanie Biedermann
-}
+\strong{Maintainer}: Min Yang \email{minyang.stat@gmail.com}
 
 }
 \keyword{internal}

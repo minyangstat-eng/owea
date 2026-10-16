@@ -2,11 +2,8 @@ Package: owea
 Type: Package
 Title: Optimal Weights Exchange Algorithm for Approximate Optimal Designs
 Version: 0.5.1
-Authors@R: c(
-    person("Min", "Yang", role = c("aut")),
-    person("Stefanie", "Biedermann", role = "aut"),
-    person("Elvis", "Tang", role = c("aut", "cre"),
-           email = "alex.tang.yang@gmail.com"))
+Authors@R: person("Min", "Yang", role = c("aut", "cre"),
+                  email = "minyang.stat@gmail.com")
 Description: Finds D- and A-optimal approximate designs for linear, nonlinear
     and generalized linear models using the Optimal Weights Exchange Algorithm
     (OWEA) of Yang, Biedermann and Tang (2013)
