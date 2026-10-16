@@ -875,3 +875,13 @@ test_that("a compound simulation study past the time limit is reported and kept 
     expect_false(is.finite(owea:::.timeout_state$deadline))
   })
 })
+
+test_that("the compound covariate step says it searches on a grid", {
+  skip_if_not_installed("shiny"); skip_if_not_installed("DT")
+  e <- app_env_c()
+  # the note is several string pieces; rendered HTML may break lines between
+  # them, so compare on collapsed whitespace
+  ui <- gsub("\\s+", " ", paste(as.character(e$ui), collapse = " "))
+  expect_match(ui, "The compound design is searched", fixed = TRUE)
+  expect_match(ui, "under construction for compound designs", fixed = TRUE)
+})

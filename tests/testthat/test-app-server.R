@@ -562,3 +562,28 @@ test_that("a simulation study past the time limit is reported and stays in the R
     expect_false(is.finite(owea:::.timeout_state$deadline))
   })
 })
+
+# ---- the search-method note ---------------------------------------------------
+
+test_that("the model step explains the two search methods before the choice", {
+  skip_if_not_installed("shiny"); skip_if_not_installed("DT")
+  e <- app_env()
+  shiny::testServer(e$server, {
+    set_model(session)                                 # one continuous covariate
+    # the note is several string pieces; rendered HTML may break lines between
+    # them, so compare on collapsed whitespace
+    flat <- function(x) gsub("\\s+", " ", paste(as.character(x), collapse = " "))
+    html <- flat(output$search_ui$html)
+    expect_match(html, "How to search the continuous covariates", fixed = TRUE)
+    expect_match(html, "exactly on the grid", fixed = TRUE)
+    expect_match(html, "step sequence", fixed = TRUE)
+    expect_match(html, "not tied to any grid", fixed = TRUE)
+    # whichever option is selected, the note is shown
+    session$setInputs(search_mode = "continuous")
+    html2 <- flat(output$search_ui$html)
+    expect_match(html2, "exactly on the grid", fixed = TRUE)
+    # no continuous covariate: no choice and no note
+    session$setInputs(cov_type_1 = "factor", cov_nlev_1 = 3)
+    expect_null(output$search_ui)
+  })
+})

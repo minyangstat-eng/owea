@@ -1,5 +1,12 @@
 # owea 0.5.1
 
+* App: the model step explains the two ways of searching continuous
+  covariates before the user has to choose (on a grid: discrete candidate
+  points, solution exactly on the grid, a fine step makes the search large and
+  slow, so use a step sequence or the continuous search; in the continuous
+  region: the continuity is used and the solution is not tied to any grid).
+  The compound covariate step says that it searches on a grid and that the
+  continuous search is under construction for compound designs.
 * App: a wall-clock time limit for each computation (default 60 s). A design
   search, optimality check, efficiency comparison, simulation study or
   compound scoring that runs longer is stopped; the page explains that the

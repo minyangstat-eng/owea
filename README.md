@@ -112,6 +112,15 @@ Highlights of the wizard:
   step (`0.1`) or a comma-separated **step sequence** from coarse to fine
   (`0.5, 0.1, 0.02`): the whole range is searched at the coarsest step, then
   refined locally at each finer one — fine resolution without a huge grid.
+- **Grid or continuous search.** On a grid, every candidate design point is a
+  separate, discrete point: the continuity of the covariates is not used and
+  the solution lies exactly on the grid you set; a fine step over several
+  covariates makes the grid, and the search, very large, so use a step
+  sequence or switch to the continuous search. The continuous search uses the
+  continuity: the support points move freely inside the region, so the
+  solution is not tied to any grid and no step is needed. (Single criterion
+  only: the compound branch searches on a grid; its continuous search is under
+  construction.)
 - **Large-candidate-set safeguard.** The number of candidate design points is
   checked as soon as the model step is complete (and reported again on the
   Review step). Past 1,000,000 points you choose: adjust the grid step, switch
